@@ -2,6 +2,8 @@
 
 **Forge every frame.**
 
+[![Build](https://github.com/pentaoa/lodeframe/actions/workflows/build.yml/badge.svg)](https://github.com/pentaoa/lodeframe/actions/workflows/build.yml)
+
 Lodeframe is an experimental native Metal rendering backend for Minecraft: Java Edition on Apple Silicon. Its goal is to provide a correct, stable, and efficient macOS renderer without routing Minecraft through OpenGL or Vulkan.
 
 Lodeframe is currently pre-alpha. It is not yet a drop-in replacement for the standard renderer, and performance and mod compatibility have not been established.
