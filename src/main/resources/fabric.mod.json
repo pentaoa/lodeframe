@@ -1,27 +1,26 @@
 {
   "schemaVersion": 1,
-  "id": "metallum",
+  "id": "lodeframe",
   "version": "${version}",
-  "name": "Metallum",
-  "description": "This is an PoC Metal backend for Minecraft on macOS",
+  "name": "Lodeframe",
+  "description": "A native Metal renderer for Minecraft: Java Edition on Apple Silicon.",
   "authors": [
-    "kokodio"
+    "pentaoa"
+  ],
+  "contributors": [
+    "kokodio (original Metallum implementation)"
   ],
   "contact": {
-    "homepage": "https://github.com/kokodio/metallum",
-    "sources": "https://github.com/kokodio/metallum"
+    "homepage": "https://github.com/pentaoa/lodeframe",
+    "sources": "https://github.com/pentaoa/lodeframe",
+    "issues": "https://github.com/pentaoa/lodeframe/issues"
   },
   "license": "MIT",
-  "accessWidener": "metallum.accesswidener",
-  "icon": "assets/metallum/icon.png",
-  "environment": "*",
-  "entrypoints": {
-    "main": [
-      "com.metallum.Metallum"
-    ]
-  },
+  "accessWidener": "lodeframe.accesswidener",
+  "icon": "assets/lodeframe/icon.png",
+  "environment": "client",
   "mixins": [
-    "metallum.mixins.json"
+    "lodeframe.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.19.2",
