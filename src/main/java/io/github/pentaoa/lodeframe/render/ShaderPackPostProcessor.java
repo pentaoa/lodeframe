@@ -2,23 +2,14 @@ package io.github.pentaoa.lodeframe.render;
 
 import io.github.pentaoa.lodeframe.Lodeframe;
 import io.github.pentaoa.lodeframe.client.shader.LodeframeShaderPacks;
-import io.github.pentaoa.lodeframe.shaders.pack.ResolvedShader;
-import io.github.pentaoa.lodeframe.shaders.pack.ShaderEntry;
-import io.github.pentaoa.lodeframe.shaders.pack.ShaderPack;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderPackException;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderPackReport;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderStage;
 import io.github.pentaoa.lodeframe.shaders.translate.LegacyFullscreenTransformer;
 import com.mojang.blaze3d.GpuFormat;
-import com.mojang.blaze3d.PrimitiveTopology;
 import com.mojang.blaze3d.buffers.GpuBuffer;
-import com.mojang.blaze3d.pipeline.BindGroupLayout;
-import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
-import com.mojang.blaze3d.shaders.ShaderSource;
-import com.mojang.blaze3d.shaders.ShaderType;
-import com.mojang.blaze3d.shaders.UniformType;
 import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderPassDescriptor;
 import com.mojang.blaze3d.textures.AddressMode;
@@ -28,14 +19,12 @@ import com.mojang.blaze3d.textures.GpuTexture;
 import com.mojang.blaze3d.textures.GpuTextureView;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.resources.Identifier;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.Optional;
 import java.util.OptionalDouble;
 
@@ -46,7 +35,7 @@ import java.util.OptionalDouble;
  */
 @Environment(EnvType.CLIENT)
 final class ShaderPackPostProcessor implements AutoCloseable {
-    private static final String UNIFORM_BLOCK = "LodeframeFullscreenUniforms";
+    private static final String UNIFORM_BLOCK = LegacyFullscreenTransformer.uniformBlockName(ShaderStage.FRAGMENT);
     private static final String INPUT_SAMPLER = "colortex1";
 
     private final MetalDevice device;
@@ -57,8 +46,8 @@ final class ShaderPackPostProcessor implements AutoCloseable {
     private long loadedRevision = Long.MIN_VALUE;
     private boolean failed;
     private boolean announced;
-    @Nullable
-    private FullscreenProgram program;
+    private @Nullable ShaderPackProgramSet programSet;
+    private ShaderPackProgramLoader.@Nullable PreparedProgram program;
     @Nullable
     private RenderPipeline pipeline;
     @Nullable
@@ -140,6 +129,7 @@ final class ShaderPackPostProcessor implements AutoCloseable {
         this.failed = false;
         this.announced = false;
         this.program = null;
+        this.programSet = null;
         this.pipeline = null;
         this.pipelineFormat = null;
 
@@ -150,57 +140,33 @@ final class ShaderPackPostProcessor implements AutoCloseable {
         }
 
         try {
-            this.program = loadFinalProgram(source.get(), report.get(), revision);
-        } catch (IOException | ShaderPackException | IllegalArgumentException exception) {
+            this.programSet = ShaderPackProgramSet.load(source.get(), report.get(), "world0", revision);
+            this.program = this.programSet.finalProgram();
+            for (ShaderPackProgramLoader.PreparedProgram prepared : this.programSet.fullscreenPrograms()) {
+                if (prepared == this.program) {
+                    continue;
+                }
+                RenderPipeline preparedPipeline = ShaderPackPipelineFactory.create(
+                        prepared,
+                        this.programSet.bufferFormats(),
+                        GpuFormat.RGBA8_UNORM
+                );
+                CompiledRenderPipeline compiled = this.device.precompilePipeline(
+                        preparedPipeline,
+                        prepared.shaderSource()
+                );
+                if (!compiled.isValid()) {
+                    throw new IllegalStateException("Metal rejected shader-pack program " + prepared.program().key());
+                }
+            }
+            Lodeframe.LOGGER.info(
+                    "Compiled {} fullscreen shader-pack programs for Metal",
+                    this.programSet.fullscreenPrograms().size()
+            );
+        } catch (IOException | ShaderPackException | RuntimeException exception) {
             this.failed = true;
             Lodeframe.LOGGER.error("Unable to prepare the shader pack final program", exception);
         }
-    }
-
-    private static FullscreenProgram loadFinalProgram(
-            final Path source,
-            final ShaderPackReport report,
-            final long revision
-    ) throws IOException, ShaderPackException {
-        ShaderEntry vertexEntry = finalStage(report, ShaderStage.VERTEX);
-        ShaderEntry fragmentEntry = finalStage(report, ShaderStage.FRAGMENT);
-        try (ShaderPack pack = ShaderPack.open(source)) {
-            ResolvedShader vertex = pack.resolve(vertexEntry.path());
-            ResolvedShader fragment = pack.resolve(fragmentEntry.path());
-            String vertexSource = LegacyFullscreenTransformer.transform(ShaderStage.VERTEX, vertex.source());
-            String fragmentSource = LegacyFullscreenTransformer.transform(ShaderStage.FRAGMENT, fragment.source());
-            Identifier id = Identifier.fromNamespaceAndPath(
-                    Lodeframe.MOD_ID,
-                    "shaderpack/final/" + Long.toUnsignedString(revision)
-            );
-            ShaderSource shaderSource = (requestedId, stage) -> {
-                if (!id.equals(requestedId)) {
-                    return null;
-                }
-                return switch (stage) {
-                    case VERTEX -> vertexSource;
-                    case FRAGMENT -> fragmentSource;
-                };
-            };
-            return new FullscreenProgram(id, shaderSource, vertexEntry.path(), fragmentEntry.path());
-        }
-    }
-
-    private static ShaderEntry finalStage(final ShaderPackReport report, final ShaderStage stage) {
-        return report.stageEntries().stream()
-                .filter(entry -> entry.program().equals("final") && entry.stage() == stage)
-                .min(Comparator.comparingInt(ShaderPackPostProcessor::dimensionPreference))
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Shader pack has no final" + stage.extension() + " program"
-                ));
-    }
-
-    private static int dimensionPreference(final ShaderEntry entry) {
-        return switch (entry.dimension()) {
-            case "world0" -> 0;
-            case "default" -> 1;
-            default -> 2;
-        };
     }
 
     private void ensurePipeline(final GpuFormat format) {
@@ -208,21 +174,7 @@ final class ShaderPackPostProcessor implements AutoCloseable {
             return;
         }
         this.pipelineFormat = format;
-        BindGroupLayout layout = BindGroupLayout.builder()
-                .withSampler(INPUT_SAMPLER)
-                .withUniform(UNIFORM_BLOCK, UniformType.UNIFORM_BUFFER)
-                .build();
-        ColorTargetState targetState = new ColorTargetState(Optional.empty(), format, ColorTargetState.WRITE_ALL);
-        this.pipeline = RenderPipeline.builder()
-                .withLocation(this.program.id())
-                .withVertexShader(this.program.id())
-                .withFragmentShader(this.program.id())
-                .withBindGroupLayout(layout)
-                .withCull(false)
-                .withPrimitiveTopology(PrimitiveTopology.TRIANGLES)
-                .withColorTargetState(targetState)
-                .withDepthStencilState(Optional.empty())
-                .build();
+        this.pipeline = ShaderPackPipelineFactory.create(this.program, this.programSet.bufferFormats(), format);
     }
 
     private void ensureResources(final GpuTextureView inputView) {
@@ -301,13 +253,5 @@ final class ShaderPackPostProcessor implements AutoCloseable {
     @Override
     public void close() {
         releaseResources();
-    }
-
-    private record FullscreenProgram(
-            Identifier id,
-            ShaderSource shaderSource,
-            String vertexPath,
-            String fragmentPath
-    ) {
     }
 }

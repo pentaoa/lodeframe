@@ -34,6 +34,7 @@ final class MetalCrossShaderCompiler {
     private static final int MSL_VERSION_4_0 = 0x040000;
     private static final Pattern VERTEX_ENTRY_PATTERN = Pattern.compile("\\bvertex\\s+\\w+\\s+(\\w+)\\s*\\(");
     private static final Pattern FRAGMENT_ENTRY_PATTERN = Pattern.compile("\\bfragment\\s+\\w+\\s+(\\w+)\\s*\\(");
+    private static final Pattern MSL_NEW_IDENTIFIER = Pattern.compile("\\bnew\\b");
 
     private MetalCrossShaderCompiler() {
     }
@@ -357,11 +358,16 @@ final class MetalCrossShaderCompiler {
 
                 PointerBuffer pSource = stack.mallocPointer(1);
                 checkSpvc(Spvc.spvc_compiler_compile(compiler, pSource), "spvc_compiler_compile");
-                return new MslShader(MemoryUtil.memUTF8(pSource.get(0)), hasPushConstants, activeResources);
+                return new MslShader(sanitizeMsl(MemoryUtil.memUTF8(pSource.get(0))), hasPushConstants, activeResources);
             } finally {
                 Spvc.spvc_context_destroy(context);
             }
         }
+    }
+
+    static String sanitizeMsl(final String source) {
+        // SPIRV-Cross currently preserves this legal GLSL identifier even though MSL reserves it.
+        return MSL_NEW_IDENTIFIER.matcher(source).replaceAll("lodeframe_new");
     }
 
     record MslShader(String source, boolean hasPushConstants, Set<String> activeResources) {
