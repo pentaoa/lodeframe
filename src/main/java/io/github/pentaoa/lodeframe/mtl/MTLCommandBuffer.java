@@ -62,15 +62,52 @@ public final class MTLCommandBuffer {
             final double viewportWidth,
             final double viewportHeight
     ) {
-        if (ObjC.isNil(colorTexture) && ObjC.isNil(depthTexture)) {
+        return makeRenderCommandEncoder(
+                new MemorySegment[]{colorTexture},
+                new Vector4fc[]{clearColor},
+                depthTexture,
+                clearDepth,
+                viewportWidth,
+                viewportHeight
+        );
+    }
+
+    public MTLRenderCommandEncoder makeRenderCommandEncoder(
+            final MemorySegment[] colorTextures,
+            final Vector4fc[] clearColors,
+            final MemorySegment depthTexture,
+            @Nullable final Double clearDepth,
+            final double viewportWidth,
+            final double viewportHeight
+    ) {
+        if (colorTextures.length != clearColors.length) {
+            throw new IllegalArgumentException("Color texture and clear arrays must have the same length");
+        }
+        if (colorTextures.length > MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS) {
+            throw new IllegalArgumentException("Metal supports at most " + MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS + " color attachments");
+        }
+
+        boolean hasColorAttachment = false;
+        for (MemorySegment colorTexture : colorTextures) {
+            if (!ObjC.isNil(colorTexture)) {
+                hasColorAttachment = true;
+                break;
+            }
+        }
+        if (!hasColorAttachment && ObjC.isNil(depthTexture)) {
             throw new IllegalStateException("Render pass requires a color or depth attachment");
         }
         try (AutoreleasePool _ = AutoreleasePool.push()) {
             MTLRenderCommandEncoder encoder;
             try (MTLRenderPassDescriptor renderPass = new MTLRenderPassDescriptor()) {
-                if (!ObjC.isNil(colorTexture)) {
+                for (int index = 0; index < colorTextures.length; index++) {
+                    MemorySegment colorTexture = colorTextures[index];
+                    if (ObjC.isNil(colorTexture)) {
+                        continue;
+                    }
+                    Vector4fc clearColor = clearColors[index];
                     renderPass.colorAttachment(
-                            0,
+                            index,
                             colorTexture,
                             clearColor != null ? MTLRenderPassDescriptor.LOAD_ACTION_CLEAR : MTLRenderPassDescriptor.LOAD_ACTION_LOAD,
                             MTLRenderPassDescriptor.STORE_ACTION_STORE,

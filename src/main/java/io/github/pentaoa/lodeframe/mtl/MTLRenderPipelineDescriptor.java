@@ -9,6 +9,8 @@ import java.lang.foreign.MemorySegment;
 import static java.lang.foreign.ValueLayout.*;
 
 public final class MTLRenderPipelineDescriptor implements AutoCloseable {
+    public static final int MAX_COLOR_ATTACHMENTS = 8;
+
     private static final MemorySegment CLS = ObjC.clazz("MTLRenderPipelineDescriptor");
     private static final Msg NEW = Msg.of("new", ADDRESS);
     private static final Msg SET_VERTEX_FUNCTION = Msg.ofVoid("setVertexFunction:", ADDRESS);

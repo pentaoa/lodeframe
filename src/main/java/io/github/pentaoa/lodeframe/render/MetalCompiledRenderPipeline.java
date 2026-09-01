@@ -16,6 +16,8 @@ import net.fabricmc.api.Environment;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,9 +49,15 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
     private final MTLPrimitiveType topology;
     private final int vertexBufferCount;
 
+    private final MetalDevice device;
+    private final RenderPipeline info;
     private final MemorySegment depthStencilState;
-    private final MemorySegment withDepthPipeline;
-    private final MemorySegment withoutDepthPipeline;
+    private final MemorySegment vertexFunction;
+    private final MemorySegment fragmentFunction;
+    private final MTLVertexDescriptor vertexDescriptor;
+    private final ColorTargetState[] colorTargetStates;
+    private final MTLPixelFormat[] colorAttachmentFormats;
+    private final Map<DepthStencilFormats, MemorySegment> nativePipelines = new HashMap<>();
 
     MetalCompiledRenderPipeline(
             final MetalDevice device,
@@ -60,6 +68,8 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
             final String fragmentEntryPoint,
             final List<ResourceBinding> resources
     ) {
+        this.device = device;
+        this.info = info;
         this.resources = resources;
         this.resourcesByName = resources.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(ResourceBinding::name, binding -> binding));
 
@@ -97,60 +107,60 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
 
         this.depthStencilState = device.depthStencilState(depthCompareOp, depthWrite != 0);
 
-        var colorTarget = info.getColorTargetState();
-        MTLPixelFormat colorFormat = colorTarget != null ? MTLPixelFormat.from(colorTarget.format()) : MTLPixelFormat.RGBA8Unorm;
+        this.colorTargetStates = info.getColorTargetStates();
+        this.colorAttachmentFormats = colorTargetFormats(this.colorTargetStates);
+        this.vertexFunction = device.getOrCompileFunction(vertexMsl, vertexEntryPoint);
+        this.fragmentFunction = device.getOrCompileFunction(fragmentMsl, fragmentEntryPoint);
+        this.vertexDescriptor = buildVertexDescriptor(info, this.firstAvailableVertexBufferSlot);
 
-        MemorySegment vertexFunction = device.getOrCompileFunction(vertexMsl, vertexEntryPoint);
-        MemorySegment fragmentFunction = device.getOrCompileFunction(fragmentMsl, fragmentEntryPoint);
-
-        try (MTLVertexDescriptor vertexDescriptor = buildVertexDescriptor(info, this.firstAvailableVertexBufferSlot)) {
-            this.withDepthPipeline = createPipeline(device, info, vertexFunction, fragmentFunction, vertexDescriptor, colorFormat, MTLPixelFormat.Depth32Float);
-            this.withoutDepthPipeline = createPipeline(device, info, vertexFunction, fragmentFunction, vertexDescriptor, colorFormat, MTLPixelFormat.Invalid);
-        }
+        getNativePipeline(MTLPixelFormat.Invalid, MTLPixelFormat.Invalid);
+        getNativePipeline(MTLPixelFormat.Depth32Float, MTLPixelFormat.Invalid);
     }
 
-    private static MemorySegment createPipeline(
-            final MetalDevice device,
-            final RenderPipeline info,
-            final MemorySegment vertexFunction,
-            final MemorySegment fragmentFunction,
-            final MTLVertexDescriptor vertexDescriptor,
-            final MTLPixelFormat colorFormat,
-            final MTLPixelFormat depthFormat
-    ) {
+    private MemorySegment createPipeline(final DepthStencilFormats depthStencilFormats) {
         if (ObjC.isNil(vertexFunction) || ObjC.isNil(fragmentFunction)) {
             return MemorySegment.NULL;
         }
 
-        ColorTargetState colorTarget = info.getColorTargetState();
-        Optional<BlendFunction> blendFunction = colorTarget == null ? Optional.empty() : colorTarget.blendFunction();
-        long writeMask = colorTarget == null ? MTLColorWriteMask.All.value : MTLColorWriteMask.from(colorTarget.writeMask());
-
         try (MTLRenderPipelineDescriptor pipelineDesc = new MTLRenderPipelineDescriptor()) {
             pipelineDesc.setCompiledFunctions(vertexFunction, fragmentFunction);
             pipelineDesc.setVertexDescriptor(vertexDescriptor);
-            pipelineDesc.setColorAttachmentFormat(0, colorFormat);
-            pipelineDesc.setDepthStencilFormats(depthFormat, MTLPixelFormat.Invalid);
+            for (int index = 0; index < colorAttachmentFormats.length; index++) {
+                MTLPixelFormat format = colorAttachmentFormats[index];
+                pipelineDesc.setColorAttachmentFormat(index, format);
+                ColorTargetState colorTarget = colorTargetStates.length > index ? colorTargetStates[index] : null;
+                if (colorTarget == null) {
+                    continue;
+                }
 
-            if (blendFunction.isPresent()) {
-                var function = blendFunction.get();
-                pipelineDesc.setBlendState(
-                        0,
-                        MTLBlendFactor.from(function.color().sourceFactor()),
-                        MTLBlendFactor.from(function.color().destFactor()),
-                        MTLBlendOperation.from(function.color().op()),
-                        MTLBlendFactor.from(function.alpha().sourceFactor()),
-                        MTLBlendFactor.from(function.alpha().destFactor()),
-                        MTLBlendOperation.from(function.alpha().op()),
-                        writeMask
-                );
-            } else {
-                pipelineDesc.disableBlending(0, writeMask);
+                Optional<BlendFunction> blendFunction = colorTarget.blendFunction();
+                long writeMask = MTLColorWriteMask.from(colorTarget.writeMask());
+                if (blendFunction.isPresent()) {
+                    var function = blendFunction.get();
+                    pipelineDesc.setBlendState(
+                            index,
+                            MTLBlendFactor.from(function.color().sourceFactor()),
+                            MTLBlendFactor.from(function.color().destFactor()),
+                            MTLBlendOperation.from(function.color().op()),
+                            MTLBlendFactor.from(function.alpha().sourceFactor()),
+                            MTLBlendFactor.from(function.alpha().destFactor()),
+                            MTLBlendOperation.from(function.alpha().op()),
+                            writeMask
+                    );
+                } else {
+                    pipelineDesc.disableBlending(index, writeMask);
+                }
             }
+            pipelineDesc.setDepthStencilFormats(depthStencilFormats.depth(), depthStencilFormats.stencil());
 
             MemorySegment pipeline = device.metalDevice().newRenderPipelineState(pipelineDesc);
             if (ObjC.isNil(pipeline)) {
-                Lodeframe.LOGGER.error("[lodeframe] Pipeline {} failed to build with depth format {}", info.getLocation(), depthFormat);
+                Lodeframe.LOGGER.error(
+                        "[lodeframe] Pipeline {} failed to build with depth/stencil formats {}/{}",
+                        info.getLocation(),
+                        depthStencilFormats.depth(),
+                        depthStencilFormats.stencil()
+                );
             }
             return pipeline;
         }
@@ -158,7 +168,7 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
 
     @Override
     public boolean isValid() {
-        return !ObjC.isNil(this.withDepthPipeline);
+        return !ObjC.isNil(getNativePipeline(MTLPixelFormat.Depth32Float, MTLPixelFormat.Invalid));
     }
 
     List<ResourceBinding> resources() {
@@ -190,8 +200,18 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
         return this.depthStencilState;
     }
 
-    MemorySegment getNativePipeline(final boolean useDepth) {
-        return useDepth ? this.withDepthPipeline : this.withoutDepthPipeline;
+    MemorySegment getNativePipeline(final MTLPixelFormat depthFormat, final MTLPixelFormat stencilFormat) {
+        DepthStencilFormats formats = new DepthStencilFormats(depthFormat, stencilFormat);
+        return nativePipelines.computeIfAbsent(formats, this::createPipeline);
+    }
+
+    void validateColorAttachmentFormats(final MTLPixelFormat[] actualFormats) {
+        if (!Arrays.equals(colorAttachmentFormats, actualFormats)) {
+            throw new IllegalStateException(
+                    "Pipeline " + info.getLocation() + " expects color attachments "
+                            + Arrays.toString(colorAttachmentFormats) + " but render pass uses " + Arrays.toString(actualFormats)
+            );
+        }
     }
 
     MTLCullMode cullMode() {
@@ -254,13 +274,33 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
         return maxVertexBufferBinding + 1;
     }
 
+    static MTLPixelFormat[] colorTargetFormats(final ColorTargetState[] colorTargetStates) {
+        if (colorTargetStates.length > MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS) {
+            throw new IllegalArgumentException("Metal supports at most " + MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS + " color targets");
+        }
+
+        MTLPixelFormat[] formats = new MTLPixelFormat[MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS];
+        Arrays.fill(formats, MTLPixelFormat.Invalid);
+        for (int index = 0; index < colorTargetStates.length; index++) {
+            ColorTargetState target = colorTargetStates[index];
+            if (target != null) {
+                formats[index] = MTLPixelFormat.from(target.format());
+            }
+        }
+        return formats;
+    }
+
     @Override
     public void close() {
-        if (!ObjC.isNil(this.withDepthPipeline)) {
-            ObjC.release(this.withDepthPipeline);
+        for (MemorySegment pipeline : nativePipelines.values()) {
+            if (!ObjC.isNil(pipeline)) {
+                ObjC.release(pipeline);
+            }
         }
-        if (!ObjC.isNil(this.withoutDepthPipeline)) {
-            ObjC.release(this.withoutDepthPipeline);
-        }
+        nativePipelines.clear();
+        vertexDescriptor.close();
+    }
+
+    private record DepthStencilFormats(MTLPixelFormat depth, MTLPixelFormat stencil) {
     }
 }
