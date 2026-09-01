@@ -211,11 +211,6 @@ final class MetalRenderPass implements RenderPassBackend {
 
     @Override
     public void multiDrawIndexed(@NonNull PointerBuffer firstIndexOffsets, @NonNull IntBuffer indexCounts, @NonNull IntBuffer vertexOffsets, int drawCount) {
-        MTLPrimitiveType primitiveType = primitiveTopology();
-        if (primitiveType == MTLPrimitiveType.TriangleFan) {
-            throw new UnsupportedOperationException("Metal backend does not support triangle fan multiDrawIndexed");
-        }
-
         MetalGpuBuffer nativeIndexBuffer = (MetalGpuBuffer) indexBuffer;
         MTLRenderCommandEncoder enc = renderEncoder();
         bindDrawState(enc);
@@ -231,7 +226,7 @@ final class MetalRenderPass implements RenderPassBackend {
             }
             long firstIndexOffset = offsets.get(ValueLayout.JAVA_LONG, i * 8L);
             int baseVertex = vertices.get(ValueLayout.JAVA_INT, i * 4L);
-            enc.drawIndexedPrimitives(primitiveType, indexCount, indexType, indexBufferHandle, firstIndexOffset, 1, baseVertex, 0);
+            drawIndexedNativeAtOffset(enc, indexBufferHandle, firstIndexOffset, indexCount, baseVertex, 1, indexType, 0);
         }
     }
 
@@ -489,21 +484,33 @@ final class MetalRenderPass implements RenderPassBackend {
             final MTLIndexType indexType,
             final int baseInstance
     ) {
-        MTLPrimitiveType primitiveType = primitiveTopology();
-
         long indexOffsetBytes = (long) firstIndex * indexType.bytes;
+        drawIndexedNativeAtOffset(enc, nativeIndexBuffer.metalBuffer(), indexOffsetBytes, indexCount, baseVertex, instanceCount, indexType, baseInstance);
+    }
+
+    private void drawIndexedNativeAtOffset(
+            final MTLRenderCommandEncoder enc,
+            final MTLBuffer nativeIndexBuffer,
+            final long indexOffsetBytes,
+            final int indexCount,
+            final int baseVertex,
+            final int instanceCount,
+            final MTLIndexType indexType,
+            final int baseInstance
+    ) {
+        MTLPrimitiveType primitiveType = primitiveTopology();
         if (primitiveType == MTLPrimitiveType.TriangleFan) {
             if (indexCount < 3) {
                 return;
             }
             int generatedIndexCount = (indexCount - 2) * 3;
             try (GpuBufferSlice.MappedView mapped = commandEncoder.transientMemory().allocateGpuMapped((long) generatedIndexCount * Integer.BYTES, Integer.BYTES, GpuBuffer.USAGE_INDEX)) {
-                expandTriangleFan(mapped.data().asIntBuffer(), nativeIndexBuffer.metalBuffer(), indexOffsetBytes, indexCount, indexType);
+                expandTriangleFan(mapped.data().asIntBuffer(), nativeIndexBuffer, indexOffsetBytes, indexCount, indexType);
                 GpuBufferSlice slice = mapped.slice();
                 enc.drawIndexedPrimitives(MTLPrimitiveType.Triangle, generatedIndexCount, MTLIndexType.UInt32, ((MetalGpuBuffer) slice.buffer()).metalBuffer(), slice.offset(), instanceCount, baseVertex, baseInstance);
             }
         } else {
-            enc.drawIndexedPrimitives(primitiveType, indexCount, indexType, nativeIndexBuffer.metalBuffer(), indexOffsetBytes, instanceCount, baseVertex, baseInstance);
+            enc.drawIndexedPrimitives(primitiveType, indexCount, indexType, nativeIndexBuffer, indexOffsetBytes, instanceCount, baseVertex, baseInstance);
         }
     }
 
