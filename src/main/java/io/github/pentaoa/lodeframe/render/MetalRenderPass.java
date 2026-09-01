@@ -301,12 +301,26 @@ final class MetalRenderPass implements RenderPassBackend {
 
     @Override
     public void multiDraw(@NonNull IntBuffer drawParameters, int instanceCount, int firstInstance, int drawCount) {
-        throw new UnsupportedOperationException();
+        MTLPrimitiveType primitiveType = primitiveTopology();
+        MTLRenderCommandEncoder enc = renderEncoder();
+        bindDrawState(enc);
+
+        for (int index = 0; index < drawCount; index++) {
+            int firstVertex = drawParameters.get(index * 2);
+            int vertexCount = drawParameters.get(index * 2 + 1);
+            drawDirect(enc, primitiveType, firstVertex, vertexCount, instanceCount, firstInstance);
+        }
     }
 
     @Override
     public void multiDraw(@NonNull IntBuffer firstVertices, @NonNull IntBuffer vertexCounts, int drawCount) {
-        throw new UnsupportedOperationException();
+        MTLPrimitiveType primitiveType = primitiveTopology();
+        MTLRenderCommandEncoder enc = renderEncoder();
+        bindDrawState(enc);
+
+        for (int index = 0; index < drawCount; index++) {
+            drawDirect(enc, primitiveType, firstVertices.get(index), vertexCounts.get(index), 1, 0);
+        }
     }
 
     @Override
@@ -490,6 +504,24 @@ final class MetalRenderPass implements RenderPassBackend {
             }
         } else {
             enc.drawIndexedPrimitives(primitiveType, indexCount, indexType, nativeIndexBuffer.metalBuffer(), indexOffsetBytes, instanceCount, baseVertex, baseInstance);
+        }
+    }
+
+    private void drawDirect(
+            final MTLRenderCommandEncoder enc,
+            final MTLPrimitiveType primitiveType,
+            final int firstVertex,
+            final int vertexCount,
+            final int instanceCount,
+            final int firstInstance
+    ) {
+        if (vertexCount <= 0 || instanceCount <= 0) {
+            return;
+        }
+        if (primitiveType == MTLPrimitiveType.TriangleFan) {
+            drawTriangleFan(enc, firstVertex, vertexCount, instanceCount, firstInstance);
+        } else {
+            enc.drawPrimitives(primitiveType, firstVertex, vertexCount, instanceCount, firstInstance);
         }
     }
 

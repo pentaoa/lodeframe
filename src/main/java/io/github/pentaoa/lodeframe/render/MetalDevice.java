@@ -294,7 +294,7 @@ final class MetalDevice implements GpuDeviceBackend {
                 "Metal",
                 1.0F,
                 new DeviceLimits(16, 256, 16384, maxMemoryAllocationSize, 0, 1),
-                new DeviceFeatures(false, false, true, true, true, false, true),
+                new DeviceFeatures(false, true, true, true, true, false, true),
                 extensions,
                 new HintsAndWorkarounds(false, false),
                 type
