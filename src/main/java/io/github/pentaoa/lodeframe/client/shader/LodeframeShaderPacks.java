@@ -4,6 +4,7 @@ import io.github.pentaoa.lodeframe.Lodeframe;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderPack;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderPackReport;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderPackScanner;
+import io.github.pentaoa.lodeframe.render.sodium.ShaderPackBlockIds;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -120,6 +121,7 @@ public final class LodeframeShaderPacks {
                 Lodeframe.LOGGER.error("Shader pack {} failed validation: {}", source, this.activationError);
                 return false;
             }
+            ShaderPackBlockIds.load(pack);
             this.activeReport = report;
             this.activeSource = source;
             this.revision++;
@@ -146,6 +148,7 @@ public final class LodeframeShaderPacks {
         }
         this.activeReport = null;
         this.activeSource = null;
+        ShaderPackBlockIds.clear();
     }
 
     private void restoreConfiguredPack() {

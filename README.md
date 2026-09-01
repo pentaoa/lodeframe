@@ -13,9 +13,12 @@ Lodeframe is currently pre-alpha. It is not yet a drop-in replacement for the st
 - Native rendering through Apple's Metal API
 - Minecraft 26.2 rendering-backend integration
 - Sodium compatibility
-- A Sodium settings entry for enabling and selecting local shader packs (rendering integration is not connected yet)
+- A Sodium settings entry for enabling and selecting local shader packs
+- An in-development OptiFine/Iris-format renderer covering world gbuffers, directional shadows, composite passes, and final output through Metal
 - Renderer correctness, lifecycle stability, and reproducible benchmarks
-- A future shader-pack compatibility layer in [Lodeframe Shaders](https://github.com/pentaoa/lodeframe-shaders)
+- The pack parser and legacy GLSL compatibility layer in [Lodeframe Shaders](https://github.com/pentaoa/lodeframe-shaders)
+
+BSL 10.1.3 is the current conformance target. Its selected terrain, water, sky, entity, hand, particle, weather, shadow, composite, and final programs pass the offline GLSL frontend suite; rendered-output validation remains pre-alpha work.
 
 ## Requirements
 

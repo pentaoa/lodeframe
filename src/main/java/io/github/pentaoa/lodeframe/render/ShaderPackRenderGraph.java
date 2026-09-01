@@ -5,7 +5,6 @@ import io.github.pentaoa.lodeframe.shaders.pack.ShaderProgramType;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderStage;
 import io.github.pentaoa.lodeframe.shaders.translate.LegacyFullscreenTransformer;
 import com.mojang.blaze3d.GpuFormat;
-import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.pipeline.CompiledRenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.systems.RenderPass;
@@ -18,8 +17,6 @@ import com.mojang.blaze3d.textures.GpuTextureView;
 import org.joml.Vector4f;
 import org.jspecify.annotations.Nullable;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -46,18 +43,13 @@ final class ShaderPackRenderGraph implements AutoCloseable {
     private final MetalDevice device;
     private final MetalCommandEncoder commandEncoder;
     private final ShaderPackProgramSet programSet;
+    private final ShaderPackTextureResources packTextures;
     private final List<ProgramPass> passes = new ArrayList<>();
     private final Map<Integer, TargetPair> targets = new HashMap<>();
-    private final long startNanos = System.nanoTime();
     private final GpuSampler sampler;
-    private final GpuSampler comparisonSampler;
     private int width;
     private int height;
     private @Nullable GpuFormat inputFormat;
-    private @Nullable GpuTexture neutralColor;
-    private @Nullable GpuTextureView neutralColorView;
-    private @Nullable GpuTexture neutralDepth;
-    private @Nullable GpuTextureView neutralDepthView;
     private @Nullable GpuTexture outputTexture;
     private @Nullable GpuTextureView outputView;
     private @Nullable GpuTextureView frameDepthView;
@@ -65,21 +57,18 @@ final class ShaderPackRenderGraph implements AutoCloseable {
     private @Nullable GpuTextureView worldDepthView;
     private int worldDepthWidth;
     private int worldDepthHeight;
-    private int frameCounter;
-    private @Nullable float[] previousProjection;
-    private @Nullable float[] previousModelView;
-    private float previousCameraX;
-    private float previousCameraY;
-    private float previousCameraZ;
+    private boolean framePrepared;
 
     ShaderPackRenderGraph(
             final MetalDevice device,
             final MetalCommandEncoder commandEncoder,
-            final ShaderPackProgramSet programSet
+            final ShaderPackProgramSet programSet,
+            final ShaderPackTextureResources packTextures
     ) {
         this.device = device;
         this.commandEncoder = commandEncoder;
         this.programSet = programSet;
+        this.packTextures = packTextures;
         this.sampler = device.createSampler(
                 AddressMode.CLAMP_TO_EDGE,
                 AddressMode.CLAMP_TO_EDGE,
@@ -88,42 +77,59 @@ final class ShaderPackRenderGraph implements AutoCloseable {
                 1,
                 OptionalDouble.empty()
         );
-        this.comparisonSampler = device.createComparisonSampler();
     }
 
-    GpuTextureView process(final GpuTextureView input, final ShaderPackFrameContext context) {
+    GpuTextureView process(final GpuTextureView input, final ShaderPackFrameValues values) {
         ensureResources(input);
+        if (!this.framePrepared) {
+            beginFrame(input);
+        }
         this.frameDepthView = capturedWorldDepth();
-        prepareFrame(input);
-        float[] priorProjection = this.previousProjection == null ? context.projection() : this.previousProjection;
-        float[] priorModelView = this.previousModelView == null ? context.modelView() : this.previousModelView;
-        FrameValues values = new FrameValues(
-                this.width,
-                this.height,
-                this.frameCounter++,
-                (System.nanoTime() - this.startNanos) / 1_000_000_000.0F,
-                context,
-                priorProjection,
-                priorModelView,
-                this.previousProjection == null ? context.cameraX() : this.previousCameraX,
-                this.previousProjection == null ? context.cameraY() : this.previousCameraY,
-                this.previousProjection == null ? context.cameraZ() : this.previousCameraZ
-        );
+        copyInput(input, this.targets.get(0).read());
+        boolean finalExecuted = false;
         for (ProgramPass pass : this.passes) {
             pass.updateUniforms(values);
             if (pass.program().program().type() == ShaderProgramType.FINAL) {
                 executeFinal(pass);
+                finalExecuted = true;
             } else {
                 executeFullscreen(pass);
             }
         }
-        this.previousProjection = context.projection().clone();
-        this.previousModelView = context.modelView().clone();
-        this.previousCameraX = context.cameraX();
-        this.previousCameraY = context.cameraY();
-        this.previousCameraZ = context.cameraZ();
         this.frameDepthView = null;
-        return this.outputView;
+        this.framePrepared = false;
+        return finalExecuted ? this.outputView : this.targets.get(0).read();
+    }
+
+    void beginFrame(final GpuTextureView input) {
+        ensureResources(input);
+        for (Map.Entry<Integer, TargetPair> entry : this.targets.entrySet()) {
+            TargetPair pair = entry.getValue();
+            pair.reset();
+            if (this.programSet.bufferClears().getOrDefault(entry.getKey(), true)) {
+                ShaderDirectives.ClearColor configured = this.programSet.bufferClearColors().get(entry.getKey());
+                Vector4f color = configured == null
+                        ? new Vector4f(0.0F)
+                        : new Vector4f(configured.red(), configured.green(), configured.blue(), configured.alpha());
+                this.commandEncoder.clearColorTexture(pair.first().texture(), color);
+                this.commandEncoder.clearColorTexture(pair.second().texture(), color);
+            }
+        }
+        this.framePrepared = true;
+    }
+
+    @Nullable GpuTextureView gbufferColorAttachment(
+            final ShaderPackProgramLoader.PreparedProgram program,
+            final int location
+    ) {
+        List<Integer> physicalTargets = program.renderTargets()
+                .map(ShaderDirectives.RenderTargets::buffers)
+                .orElse(List.of(0));
+        if (location < 0 || location >= physicalTargets.size()) {
+            return null;
+        }
+        TargetPair target = this.targets.get(physicalTargets.get(location));
+        return target == null ? null : target.read();
     }
 
     void captureWorldDepth(final GpuTextureView depth) {
@@ -168,24 +174,17 @@ final class ShaderPackRenderGraph implements AutoCloseable {
 
         Map<Integer, GpuFormat> effectiveFormats = new HashMap<>(this.programSet.bufferFormats());
         effectiveFormats.put(0, format);
-        effectiveFormats.put(1, format);
         for (int index : usedColorBuffers()) {
             GpuFormat targetFormat = effectiveFormats.getOrDefault(index, GpuFormat.RGBA8_UNORM);
             this.targets.put(index, createPair(index, targetFormat));
         }
-        this.neutralColor = createTexture("shader pack neutral color", GpuFormat.R32_FLOAT, 1, 1);
-        this.neutralColorView = this.device.createTextureView(this.neutralColor);
-        this.neutralDepth = createTexture("shader pack neutral depth", GpuFormat.D32_FLOAT, 1, 1);
-        this.neutralDepthView = this.device.createTextureView(this.neutralDepth);
-        this.commandEncoder.clearColorTexture(this.neutralColor, new Vector4f(1.0F));
-        this.commandEncoder.clearDepthTexture(this.neutralDepth, 1.0);
-
         this.outputTexture = createTexture("shader pack final output", format, this.width, this.height);
         this.outputView = this.device.createTextureView(this.outputTexture);
         for (ShaderPackProgramLoader.PreparedProgram program : this.programSet.fullscreenPrograms()) {
             RenderPipeline pipeline = ShaderPackPipelineFactory.create(program, effectiveFormats, format);
             CompiledRenderPipeline compiled = this.device.precompilePipeline(pipeline, program.shaderSource());
             if (!compiled.isValid()) {
+                this.device.releasePipeline(pipeline);
                 throw new IllegalStateException("Metal rejected shader-pack program " + program.program().key());
             }
             this.passes.add(new ProgramPass(program, pipeline));
@@ -201,7 +200,28 @@ final class ShaderPackRenderGraph implements AutoCloseable {
             program.vertex().samplers().forEach(sampler -> addSamplerBuffer(result, sampler.name()));
             program.fragment().samplers().forEach(sampler -> addSamplerBuffer(result, sampler.name()));
         }
+        addProgramBuffers(result, this.programSet.terrainProgram());
+        addProgramBuffers(result, this.programSet.waterProgram());
+        addProgramBuffers(result, this.programSet.skyBasicProgram());
+        addProgramBuffers(result, this.programSet.entitiesProgram());
+        addProgramBuffers(result, this.programSet.entitiesGlowingProgram());
+        addProgramBuffers(result, this.programSet.handProgram());
+        addProgramBuffers(result, this.programSet.handWaterProgram());
+        addProgramBuffers(result, this.programSet.texturedProgram());
+        addProgramBuffers(result, this.programSet.weatherProgram());
         return result;
+    }
+
+    private static void addProgramBuffers(
+            final Set<Integer> result,
+            final ShaderPackProgramLoader.@Nullable PreparedProgram program
+    ) {
+        if (program == null) {
+            return;
+        }
+        program.renderTargets().ifPresent(targets -> result.addAll(targets.buffers()));
+        program.vertex().samplers().forEach(sampler -> addSamplerBuffer(result, sampler.name()));
+        program.fragment().samplers().forEach(sampler -> addSamplerBuffer(result, sampler.name()));
     }
 
     private static void addSamplerBuffer(final Set<Integer> buffers, final String name) {
@@ -214,23 +234,6 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         if (matcher.matches()) {
             buffers.add(Integer.parseInt(matcher.group(1)));
         }
-    }
-
-    private void prepareFrame(final GpuTextureView input) {
-        for (Map.Entry<Integer, TargetPair> entry : this.targets.entrySet()) {
-            TargetPair pair = entry.getValue();
-            pair.reset();
-            if (this.programSet.bufferClears().getOrDefault(entry.getKey(), true)) {
-                ShaderDirectives.ClearColor configured = this.programSet.bufferClearColors().get(entry.getKey());
-                Vector4f color = configured == null
-                        ? new Vector4f(0.0F)
-                        : new Vector4f(configured.red(), configured.green(), configured.blue(), configured.alpha());
-                this.commandEncoder.clearColorTexture(pair.first().texture(), color);
-                this.commandEncoder.clearColorTexture(pair.second().texture(), color);
-            }
-        }
-        copyInput(input, this.targets.get(0).read());
-        copyInput(input, this.targets.get(1).read());
     }
 
     private void copyInput(final GpuTextureView input, final GpuTextureView destination) {
@@ -297,13 +300,18 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         for (LegacyFullscreenTransformer.SamplerField samplerField : samplers) {
             GpuTextureView texture = textureForSampler(samplerField.name());
             GpuSampler selectedSampler = samplerField.type().contains("Shadow")
-                    ? this.comparisonSampler
+                    || this.packTextures.forSampler(samplerField.name()) != null
+                    ? this.packTextures.samplerFor(samplerField)
                     : this.sampler;
             pass.bindTexture(samplerField.name(), texture, selectedSampler);
         }
     }
 
     private GpuTextureView textureForSampler(final String name) {
+        GpuTextureView customTexture = this.packTextures.forSampler(name);
+        if (customTexture != null) {
+            return customTexture;
+        }
         Integer legacy = LEGACY_COLORTEX.get(name);
         if (legacy != null) {
             return this.targets.get(legacy).read();
@@ -311,15 +319,15 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         Matcher matcher = COLORTEX.matcher(name);
         if (matcher.matches()) {
             TargetPair target = this.targets.get(Integer.parseInt(matcher.group(1)));
-            return target == null ? this.neutralColorView : target.read();
+            return target == null ? this.packTextures.neutralColorView() : target.read();
         }
-        if (name.startsWith("shadowtex")) {
-            return this.neutralDepthView;
+        if (name.startsWith("shadowtex") || name.equals("watershadow")) {
+            return this.packTextures.neutralShadowDepthView();
         }
         if (name.startsWith("depthtex")) {
-            return this.frameDepthView == null ? this.neutralDepthView : this.frameDepthView;
+            return this.frameDepthView == null ? this.packTextures.neutralDepthView() : this.frameDepthView;
         }
-        return this.neutralColorView;
+        return this.packTextures.neutralColorView();
     }
 
     private TargetPair createPair(final int index, final GpuFormat format) {
@@ -345,7 +353,6 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         releaseColorResources();
         releaseWorldDepth();
         this.sampler.close();
-        this.comparisonSampler.close();
     }
 
     private void releaseColorResources() {
@@ -353,21 +360,11 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         this.passes.clear();
         this.targets.values().forEach(TargetPair::close);
         this.targets.clear();
-        close(this.neutralColorView);
-        close(this.neutralColor);
-        close(this.neutralDepthView);
-        close(this.neutralDepth);
         close(this.outputView);
         close(this.outputTexture);
-        this.neutralColorView = null;
-        this.neutralColor = null;
-        this.neutralDepthView = null;
-        this.neutralDepth = null;
         this.outputView = null;
         this.outputTexture = null;
         this.frameDepthView = null;
-        this.previousProjection = null;
-        this.previousModelView = null;
     }
 
     private void releaseWorldDepth() {
@@ -392,8 +389,8 @@ final class ShaderPackRenderGraph implements AutoCloseable {
     private final class ProgramPass implements AutoCloseable {
         private final ShaderPackProgramLoader.PreparedProgram program;
         private final RenderPipeline pipeline;
-        private final @Nullable UniformState vertexUniforms;
-        private final @Nullable UniformState fragmentUniforms;
+        private final @Nullable ShaderPackUniformState vertexUniforms;
+        private final @Nullable ShaderPackUniformState fragmentUniforms;
 
         private ProgramPass(
                 final ShaderPackProgramLoader.PreparedProgram program,
@@ -403,10 +400,18 @@ final class ShaderPackRenderGraph implements AutoCloseable {
             this.pipeline = pipeline;
             this.vertexUniforms = program.vertex().uniforms().isEmpty()
                     ? null
-                    : new UniformState(program.vertex().uniforms(), "vertex");
+                    : new ShaderPackUniformState(
+                            device,
+                            program.vertex().uniforms(),
+                            "shader pack " + program.program().key() + " vertex uniforms"
+                    );
             this.fragmentUniforms = program.fragment().uniforms().isEmpty()
                     ? null
-                    : new UniformState(program.fragment().uniforms(), "fragment");
+                    : new ShaderPackUniformState(
+                            device,
+                            program.fragment().uniforms(),
+                            "shader pack " + program.program().key() + " fragment uniforms"
+                    );
         }
 
         ShaderPackProgramLoader.PreparedProgram program() {
@@ -417,33 +422,33 @@ final class ShaderPackRenderGraph implements AutoCloseable {
             return this.pipeline;
         }
 
-        void updateUniforms(final FrameValues values) {
+        void updateUniforms(final ShaderPackFrameValues values) {
             if (this.vertexUniforms != null) {
-                this.vertexUniforms.update(values);
+                this.vertexUniforms.update(commandEncoder, values);
             }
             if (this.fragmentUniforms != null) {
-                this.fragmentUniforms.update(values);
+                this.fragmentUniforms.update(commandEncoder, values);
             }
         }
 
         void bindUniforms(final MetalRenderPass pass) {
             if (this.vertexUniforms != null) {
-                pass.setUniform(
-                        LegacyFullscreenTransformer.uniformBlockName(ShaderStage.VERTEX),
-                        this.vertexUniforms.buffer
+                this.vertexUniforms.bind(
+                        pass,
+                        LegacyFullscreenTransformer.uniformBlockName(ShaderStage.VERTEX)
                 );
             }
             if (this.fragmentUniforms != null) {
-                pass.setUniform(
-                        LegacyFullscreenTransformer.uniformBlockName(ShaderStage.FRAGMENT),
-                        this.fragmentUniforms.buffer
+                this.fragmentUniforms.bind(
+                        pass,
+                        LegacyFullscreenTransformer.uniformBlockName(ShaderStage.FRAGMENT)
                 );
             }
         }
 
         @Override
         public void close() {
-            device.forgetPipelineShaderSource(this.pipeline);
+            device.releasePipeline(this.pipeline);
             if (this.vertexUniforms != null) {
                 this.vertexUniforms.close();
             }
@@ -452,34 +457,6 @@ final class ShaderPackRenderGraph implements AutoCloseable {
             }
         }
 
-        private final class UniformState implements AutoCloseable {
-            private final ShaderPackUniformLayout layout;
-            private final ByteBuffer data;
-            private final GpuBuffer buffer;
-
-            private UniformState(
-                    final List<LegacyFullscreenTransformer.UniformField> fields,
-                    final String stage
-            ) {
-                this.layout = ShaderPackUniformLayout.of(fields);
-                this.data = ByteBuffer.allocateDirect(this.layout.size()).order(ByteOrder.nativeOrder());
-                this.buffer = device.createBuffer(
-                        () -> "shader pack " + ProgramPass.this.program.program().key() + " " + stage + " uniforms",
-                        GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST,
-                        this.layout.size()
-                );
-            }
-
-            void update(final FrameValues values) {
-                this.layout.write(this.data, values);
-                commandEncoder.writeToBuffer(this.buffer.slice(), this.data);
-            }
-
-            @Override
-            public void close() {
-                this.buffer.close();
-            }
-        }
     }
 
     private static final class TargetPair implements AutoCloseable {
@@ -534,95 +511,4 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         }
     }
 
-    private record FrameValues(
-            int width,
-            int height,
-            int frame,
-            float time,
-            ShaderPackFrameContext context,
-            float[] previousProjection,
-            float[] previousModelView,
-            float previousCameraX,
-            float previousCameraY,
-            float previousCameraZ
-    )
-            implements ShaderPackUniformLayout.FrameValues {
-        @Override
-        public int integer(final String name) {
-            return switch (name) {
-                case "frameCounter" -> this.frame;
-                case "worldTime" -> (int) (this.time * 20.0F) % 24000;
-                case "eyeBrightness", "eyeBrightnessSmooth" -> 240;
-                default -> 0;
-            };
-        }
-
-        @Override
-        public int[] integerVector(final String name, final int components) {
-            int[] result = new int[components];
-            if (name.equals("eyeBrightness") || name.equals("eyeBrightnessSmooth")) {
-                java.util.Arrays.fill(result, 240);
-            }
-            return result;
-        }
-
-        @Override
-        public float[] floatVector(final String name, final int components) {
-            float[] result = new float[components];
-            switch (name) {
-                case "viewWidth" -> result[0] = this.width;
-                case "viewHeight" -> result[0] = this.height;
-                case "aspectRatio" -> result[0] = (float) this.width / this.height;
-                case "frameTimeCounter" -> result[0] = this.time;
-                case "frameTime" -> result[0] = 1.0F / 60.0F;
-                case "near" -> result[0] = this.context.near();
-                case "far" -> result[0] = this.context.far();
-                case "cameraPosition" -> {
-                    result[0] = this.context.cameraX();
-                    result[1] = this.context.cameraY();
-                    result[2] = this.context.cameraZ();
-                }
-                case "previousCameraPosition" -> {
-                    result[0] = this.previousCameraX;
-                    result[1] = this.previousCameraY;
-                    result[2] = this.previousCameraZ;
-                }
-                case "timeBrightness", "shadowFade" -> result[0] = 1.0F;
-                case "upVec" -> result[1] = 1.0F;
-                case "sunVec" -> {
-                    result[0] = 0.3F;
-                    result[1] = 0.9F;
-                    result[2] = 0.2F;
-                }
-                default -> {
-                }
-            }
-            return result;
-        }
-
-        @Override
-        public float[] matrix(final String name, final int columns) {
-            if (columns != 4) {
-                float[] identity = new float[columns * columns];
-                for (int index = 0; index < columns; index++) {
-                    identity[index * columns + index] = 1.0F;
-                }
-                return identity;
-            }
-            return switch (name) {
-                case "gbufferProjection" -> this.context.projection();
-                case "gbufferProjectionInverse" -> this.context.projectionInverse();
-                case "gbufferModelView" -> this.context.modelView();
-                case "gbufferModelViewInverse" -> this.context.modelViewInverse();
-                case "gbufferPreviousProjection" -> this.previousProjection;
-                case "gbufferPreviousModelView" -> this.previousModelView;
-                default -> new float[]{
-                        1.0F, 0.0F, 0.0F, 0.0F,
-                        0.0F, 1.0F, 0.0F, 0.0F,
-                        0.0F, 0.0F, 1.0F, 0.0F,
-                        0.0F, 0.0F, 0.0F, 1.0F
-                };
-            };
-        }
-    }
 }

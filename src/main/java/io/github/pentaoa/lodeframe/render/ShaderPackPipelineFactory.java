@@ -89,6 +89,75 @@ final class ShaderPackPipelineFactory {
         return pipeline.build();
     }
 
+    static RenderPipeline createGeometryOverride(
+            final ShaderPackProgramLoader.PreparedProgram program,
+            final RenderPipeline base,
+            final Map<Integer, GpuFormat> bufferFormats
+    ) {
+        BindGroupLayout.Builder packResources = BindGroupLayout.builder();
+        if (!program.vertex().uniforms().isEmpty()) {
+            packResources.withUniform(
+                    LegacyFullscreenTransformer.uniformBlockName(ShaderStage.VERTEX),
+                    UniformType.UNIFORM_BUFFER
+            );
+        }
+        if (!program.fragment().uniforms().isEmpty()) {
+            packResources.withUniform(
+                    LegacyFullscreenTransformer.uniformBlockName(ShaderStage.FRAGMENT),
+                    UniformType.UNIFORM_BUFFER
+            );
+        }
+        Set<String> existingSamplers = new LinkedHashSet<>(BindGroupLayout.flattenSamplers(base.getBindGroupLayouts()));
+        Set<String> packSamplers = new LinkedHashSet<>();
+        program.vertex().samplers().forEach(sampler -> packSamplers.add(sampler.name()));
+        program.fragment().samplers().forEach(sampler -> packSamplers.add(sampler.name()));
+        packSamplers.stream().filter(name -> !existingSamplers.contains(name)).forEach(packResources::withSampler);
+
+        RenderPipeline.Builder pipeline = RenderPipeline.builder()
+                .withLocation(program.id())
+                .withVertexShader(program.id())
+                .withFragmentShader(program.id())
+                .withPolygonMode(base.getPolygonMode())
+                .withCull(base.isCull())
+                .withDepthStencilState(java.util.Optional.ofNullable(base.getDepthStencilState()))
+                .withPrimitiveTopology(base.getPrimitiveTopology());
+        base.getBindGroupLayouts().forEach(pipeline::withBindGroupLayout);
+        pipeline.withBindGroupLayout(packResources.build());
+
+        List<Integer> physicalTargets = program.renderTargets()
+                .map(ShaderDirectives.RenderTargets::buffers)
+                .orElse(List.of(0));
+        Set<Integer> outputs = program.fragment().fragmentOutputLocations();
+        int highestOutput = outputs.stream().mapToInt(Integer::intValue).max().orElse(0);
+        ColorTargetState baseTarget = base.getColorTargetState();
+        for (int location = 0; location <= highestOutput; location++) {
+            if (!outputs.contains(location)) {
+                pipeline.withUnusedColorTargetState(location);
+            } else if (location == 0) {
+                pipeline.withColorTargetState(location, baseTarget);
+            } else {
+                if (location >= physicalTargets.size()) {
+                    throw new IllegalArgumentException(
+                            "Shader " + program.program().key() + " writes fragment output " + location
+                                    + " without a matching render target"
+                    );
+                }
+                int buffer = physicalTargets.get(location);
+                pipeline.withColorTargetState(
+                        location,
+                        targetState(bufferFormats.getOrDefault(buffer, DEFAULT_COLORTEX_FORMAT))
+                );
+            }
+        }
+        com.mojang.blaze3d.vertex.VertexFormat[] vertexBindings = base.getVertexFormatBindings();
+        for (int index = 0; index < vertexBindings.length; index++) {
+            if (vertexBindings[index] != null) {
+                pipeline.withVertexBinding(index, vertexBindings[index]);
+            }
+        }
+        return pipeline.build();
+    }
+
     private static ColorTargetState targetState(final GpuFormat format) {
         return new ColorTargetState(Optional.empty(), format, ColorTargetState.WRITE_ALL);
     }

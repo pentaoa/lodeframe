@@ -54,10 +54,15 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
     private final MemorySegment depthStencilState;
     private final MemorySegment vertexFunction;
     private final MemorySegment fragmentFunction;
+    private final String vertexMsl;
+    private final String fragmentMsl;
+    private final String vertexEntryPoint;
+    private final String fragmentEntryPoint;
     private final MTLVertexDescriptor vertexDescriptor;
     private final ColorTargetState[] colorTargetStates;
     private final MTLPixelFormat[] colorAttachmentFormats;
     private final Map<DepthStencilFormats, MemorySegment> nativePipelines = new HashMap<>();
+    private boolean closed;
 
     MetalCompiledRenderPipeline(
             final MetalDevice device,
@@ -109,6 +114,10 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
 
         this.colorTargetStates = info.getColorTargetStates();
         this.colorAttachmentFormats = colorTargetFormats(this.colorTargetStates);
+        this.vertexMsl = vertexMsl;
+        this.fragmentMsl = fragmentMsl;
+        this.vertexEntryPoint = vertexEntryPoint;
+        this.fragmentEntryPoint = fragmentEntryPoint;
         this.vertexFunction = device.getOrCompileFunction(vertexMsl, vertexEntryPoint);
         this.fragmentFunction = device.getOrCompileFunction(fragmentMsl, fragmentEntryPoint);
         this.vertexDescriptor = buildVertexDescriptor(info, this.firstAvailableVertexBufferSlot);
@@ -292,6 +301,10 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
 
     @Override
     public void close() {
+        if (this.closed) {
+            return;
+        }
+        this.closed = true;
         for (MemorySegment pipeline : nativePipelines.values()) {
             if (!ObjC.isNil(pipeline)) {
                 ObjC.release(pipeline);
@@ -299,6 +312,10 @@ final class MetalCompiledRenderPipeline implements CompiledRenderPipeline, AutoC
         }
         nativePipelines.clear();
         vertexDescriptor.close();
+        device.releaseFunction(this.vertexMsl, this.vertexEntryPoint);
+        device.releaseFunction(this.fragmentMsl, this.fragmentEntryPoint);
+        device.releaseShader(this.info.getVertexShader(), com.mojang.blaze3d.shaders.ShaderType.VERTEX, this.info.getShaderDefines());
+        device.releaseShader(this.info.getFragmentShader(), com.mojang.blaze3d.shaders.ShaderType.FRAGMENT, this.info.getShaderDefines());
     }
 
     private record DepthStencilFormats(MTLPixelFormat depth, MTLPixelFormat stencil) {

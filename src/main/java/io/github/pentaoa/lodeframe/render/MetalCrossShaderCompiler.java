@@ -40,9 +40,14 @@ final class MetalCrossShaderCompiler {
     }
 
     static MetalCompiledRenderPipeline compile(final MetalDevice device, final RenderPipeline pipeline, final ShaderSource shaderSource) {
+        boolean vertexRetained = false;
+        boolean fragmentRetained = false;
+        boolean ownershipTransferred = false;
         try {
             IntermediaryShaderModule vertexSpirv = device.getOrCompileShader(pipeline.getVertexShader(), ShaderType.VERTEX, pipeline.getShaderDefines(), shaderSource);
+            vertexRetained = vertexSpirv != IntermediaryShaderModule.INVALID;
             IntermediaryShaderModule fragmentSpirv = device.getOrCompileShader(pipeline.getFragmentShader(), ShaderType.FRAGMENT, pipeline.getShaderDefines(), shaderSource);
+            fragmentRetained = fragmentSpirv != IntermediaryShaderModule.INVALID;
             if (vertexSpirv == IntermediaryShaderModule.INVALID || fragmentSpirv == IntermediaryShaderModule.INVALID) {
                 throw new IllegalStateException(
                         "Couldn't compile shader for pipeline " + pipeline.getLocation()
@@ -64,7 +69,7 @@ final class MetalCrossShaderCompiler {
             String vertexEntryPoint = extractEntryPoint(vertexMsl.source(), VERTEX_ENTRY_PATTERN, "main0");
             String fragmentEntryPoint = extractEntryPoint(fragmentMsl.source(), FRAGMENT_ENTRY_PATTERN, "main0");
             List<MetalCompiledRenderPipeline.ResourceBinding> resources = buildResourceBindings(layoutEntries, vertexMsl, fragmentMsl);
-            return new MetalCompiledRenderPipeline(
+            MetalCompiledRenderPipeline compiled = new MetalCompiledRenderPipeline(
                     device,
                     pipeline,
                     vertexMsl.source(),
@@ -73,8 +78,19 @@ final class MetalCrossShaderCompiler {
                     fragmentEntryPoint,
                     resources
             );
+            ownershipTransferred = true;
+            return compiled;
         } catch (ShaderCompileException e) {
             throw new IllegalStateException("Failed to compile Metal cross shader for pipeline " + pipeline.getLocation(), e);
+        } finally {
+            if (!ownershipTransferred) {
+                if (vertexRetained) {
+                    device.releaseShader(pipeline.getVertexShader(), ShaderType.VERTEX, pipeline.getShaderDefines());
+                }
+                if (fragmentRetained) {
+                    device.releaseShader(pipeline.getFragmentShader(), ShaderType.FRAGMENT, pipeline.getShaderDefines());
+                }
+            }
         }
     }
 

@@ -79,6 +79,142 @@ final class ShaderPackProgramLoader {
         );
     }
 
+    static PreparedProgram loadSodiumChunkProgram(
+            final ShaderPack pack,
+            final ShaderProgram program,
+            final long revision
+    ) throws IOException, ShaderPackException {
+        if (!program.name().equals("gbuffers_terrain")
+                && !program.name().equals("gbuffers_water")
+                && !program.name().equals("shadow")) {
+            throw new IllegalArgumentException("Shader program is not a supported Sodium chunk program: " + program.key());
+        }
+        ShaderEntry vertexEntry = program.stage(ShaderStage.VERTEX)
+                .orElseThrow(() -> new IllegalArgumentException("Terrain program has no vertex stage: " + program.key()));
+        ShaderEntry fragmentEntry = program.stage(ShaderStage.FRAGMENT)
+                .orElseThrow(() -> new IllegalArgumentException("Terrain program has no fragment stage: " + program.key()));
+
+        ResolvedShader vertex = pack.resolve(vertexEntry.path());
+        ResolvedShader fragment = pack.resolve(fragmentEntry.path());
+        String preprocessedVertex;
+        ShaderPackGlslPreprocessor.FragmentSource preprocessedFragment;
+        try {
+            preprocessedVertex = ShaderPackGlslPreprocessor.preprocess(vertex.source(), ShaderType.VERTEX);
+            preprocessedFragment = ShaderPackGlslPreprocessor.preprocessFragment(fragment.source());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Unable to preprocess shader program " + program.key(), exception);
+        }
+        LegacyFullscreenTransformer.TransformedShader transformedVertex =
+                LegacyFullscreenTransformer.transformSodiumTerrainVertexDetailed(preprocessedVertex);
+        LegacyFullscreenTransformer.TransformedShader transformedFragment = LegacyFullscreenTransformer.transformDetailed(
+                ShaderStage.FRAGMENT,
+                preprocessedFragment.source()
+        );
+        Identifier id = Identifier.fromNamespaceAndPath(
+                Lodeframe.MOD_ID,
+                "shaderpack/" + Long.toUnsignedString(revision) + "/" + program.dimension() + "/sodium_" + program.name()
+        );
+        ShaderSource shaderSource = (requestedId, stage) -> {
+            if (!id.equals(requestedId)) {
+                return null;
+            }
+            return switch (stage) {
+                case VERTEX -> transformedVertex.source();
+                case FRAGMENT -> transformedFragment.source();
+            };
+        };
+        return new PreparedProgram(
+                program,
+                id,
+                shaderSource,
+                transformedVertex,
+                transformedFragment,
+                preprocessedFragment.renderTargets(),
+                vertexEntry.path(),
+                fragmentEntry.path()
+        );
+    }
+
+    static PreparedProgram loadMinecraftPositionProgram(
+            final ShaderPack pack,
+            final ShaderProgram program,
+            final long revision
+    ) throws IOException, ShaderPackException {
+        return loadMinecraftGeometryProgram(pack, program, revision, GeometryVertexType.POSITION);
+    }
+
+    static PreparedProgram loadMinecraftEntityProgram(
+            final ShaderPack pack,
+            final ShaderProgram program,
+            final long revision
+    ) throws IOException, ShaderPackException {
+        return loadMinecraftGeometryProgram(pack, program, revision, GeometryVertexType.ENTITY);
+    }
+
+    static PreparedProgram loadMinecraftParticleProgram(
+            final ShaderPack pack,
+            final ShaderProgram program,
+            final long revision
+    ) throws IOException, ShaderPackException {
+        return loadMinecraftGeometryProgram(pack, program, revision, GeometryVertexType.PARTICLE);
+    }
+
+    private static PreparedProgram loadMinecraftGeometryProgram(
+            final ShaderPack pack,
+            final ShaderProgram program,
+            final long revision,
+            final GeometryVertexType vertexType
+    ) throws IOException, ShaderPackException {
+        ShaderEntry vertexEntry = program.stage(ShaderStage.VERTEX)
+                .orElseThrow(() -> new IllegalArgumentException("Geometry program has no vertex stage: " + program.key()));
+        ShaderEntry fragmentEntry = program.stage(ShaderStage.FRAGMENT)
+                .orElseThrow(() -> new IllegalArgumentException("Geometry program has no fragment stage: " + program.key()));
+
+        ResolvedShader vertex = pack.resolve(vertexEntry.path());
+        ResolvedShader fragment = pack.resolve(fragmentEntry.path());
+        String preprocessedVertex;
+        ShaderPackGlslPreprocessor.FragmentSource preprocessedFragment;
+        try {
+            preprocessedVertex = ShaderPackGlslPreprocessor.preprocess(vertex.source(), ShaderType.VERTEX);
+            preprocessedFragment = ShaderPackGlslPreprocessor.preprocessFragment(fragment.source());
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("Unable to preprocess shader program " + program.key(), exception);
+        }
+        LegacyFullscreenTransformer.TransformedShader transformedVertex = switch (vertexType) {
+            case POSITION -> LegacyFullscreenTransformer.transformMinecraftPositionVertexDetailed(preprocessedVertex);
+            case ENTITY -> LegacyFullscreenTransformer.transformMinecraftEntityVertexDetailed(preprocessedVertex);
+            case PARTICLE -> LegacyFullscreenTransformer.transformMinecraftParticleVertexDetailed(preprocessedVertex);
+        };
+        LegacyFullscreenTransformer.TransformedShader transformedFragment = LegacyFullscreenTransformer.transformDetailed(
+                ShaderStage.FRAGMENT,
+                preprocessedFragment.source()
+        );
+        Identifier id = Identifier.fromNamespaceAndPath(
+                Lodeframe.MOD_ID,
+                "shaderpack/" + Long.toUnsignedString(revision) + "/" + program.dimension()
+                        + "/minecraft_" + program.name()
+        );
+        ShaderSource shaderSource = (requestedId, stage) -> {
+            if (!id.equals(requestedId)) {
+                return null;
+            }
+            return switch (stage) {
+                case VERTEX -> transformedVertex.source();
+                case FRAGMENT -> transformedFragment.source();
+            };
+        };
+        return new PreparedProgram(
+                program,
+                id,
+                shaderSource,
+                transformedVertex,
+                transformedFragment,
+                preprocessedFragment.renderTargets(),
+                vertexEntry.path(),
+                fragmentEntry.path()
+        );
+    }
+
     record PreparedProgram(
             ShaderProgram program,
             Identifier id,
@@ -89,5 +225,11 @@ final class ShaderPackProgramLoader {
             String vertexPath,
             String fragmentPath
     ) {
+    }
+
+    private enum GeometryVertexType {
+        POSITION,
+        ENTITY,
+        PARTICLE
     }
 }

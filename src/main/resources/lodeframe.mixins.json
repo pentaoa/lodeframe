@@ -9,6 +9,12 @@
     "render.GpuDeviceAccessor",
     "render.PreferredGraphicsApiMixin",
     "render.ShaderPackWorldRenderMixin",
+    "sodium.ChunkMeshFormatsMixin",
+    "sodium.ChunkBuilderMeshingTaskMixin",
+    "sodium.ChunkVertexMixin",
+    "sodium.ShaderChunkRendererMixin",
+    "sodium.SodiumWorldRendererMixin",
+    "sodium.TerrainRenderPassMixin",
     "sodium.DrawBackendMixin",
     "sodium.DrawContextMixin",
     "sodium.SodiumPreferredGraphicsApiMixin"

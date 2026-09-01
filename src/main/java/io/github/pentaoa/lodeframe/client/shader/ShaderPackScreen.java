@@ -6,6 +6,7 @@ import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Util;
+import net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -46,7 +47,11 @@ public final class ShaderPackScreen extends Screen {
 
         CycleButton<Boolean> enabledButton = CycleButton.onOffBuilder(this.shaderPacks.enabled())
                 .create(left, 52, controlWidth, 20, ENABLED, (button, value) -> {
+                    long previousRevision = this.shaderPacks.revision();
                     boolean saved = this.shaderPacks.setEnabled(value, this.selected);
+                    if (this.shaderPacks.revision() != previousRevision) {
+                        reloadWorldRenderer();
+                    }
                     if (!this.selected.isPresent()) {
                         button.setValue(false);
                     }
@@ -60,7 +65,12 @@ public final class ShaderPackScreen extends Screen {
                 .withValues(choices)
                 .create(left, 80, controlWidth, 20, PACK, (button, selection) -> {
                     this.selected = selection;
-                    updateStatus(this.shaderPacks.select(selection), false);
+                    long previousRevision = this.shaderPacks.revision();
+                    boolean saved = this.shaderPacks.select(selection);
+                    if (this.shaderPacks.revision() != previousRevision) {
+                        reloadWorldRenderer();
+                    }
+                    updateStatus(saved, false);
                 });
         packButton.active = !discovered.isEmpty();
         this.addRenderableWidget(packButton);
@@ -130,5 +140,12 @@ public final class ShaderPackScreen extends Screen {
 
     private static Component packName(final ShaderPackSelection selection) {
         return selection.isPresent() ? Component.literal(selection.displayName()) : NONE;
+    }
+
+    private static void reloadWorldRenderer() {
+        SodiumWorldRenderer renderer = SodiumWorldRenderer.instanceNullable();
+        if (renderer != null) {
+            renderer.reload();
+        }
     }
 }

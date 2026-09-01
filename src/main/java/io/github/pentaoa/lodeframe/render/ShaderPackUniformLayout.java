@@ -49,12 +49,11 @@ final class ShaderPackUniformLayout {
         int offset = entry.offset();
         if (type.startsWith("mat")) {
             int columns = type.charAt(3) - '0';
-            float[] matrix = values.matrix(name, columns);
             for (int column = 0; column < columns; column++) {
                 for (int row = 0; row < columns; row++) {
                     target.putFloat(
                             offset + column * 16 + row * Float.BYTES,
-                            matrix[column * columns + row]
+                            values.matrixComponent(name, columns, column, row)
                     );
                 }
             }
@@ -66,16 +65,14 @@ final class ShaderPackUniformLayout {
         }
         if (type.startsWith("ivec") || type.startsWith("uvec")) {
             int components = type.charAt(type.length() - 1) - '0';
-            int[] value = values.integerVector(name, components);
             for (int component = 0; component < components; component++) {
-                target.putInt(offset + component * Integer.BYTES, value[component]);
+                target.putInt(offset + component * Integer.BYTES, values.integerComponent(name, component));
             }
             return;
         }
         int components = type.equals("float") ? 1 : type.charAt(type.length() - 1) - '0';
-        float[] value = values.floatVector(name, components);
         for (int component = 0; component < components; component++) {
-            target.putFloat(offset + component * Float.BYTES, value[component]);
+            target.putFloat(offset + component * Float.BYTES, values.floatComponent(name, component));
         }
     }
 
@@ -86,11 +83,11 @@ final class ShaderPackUniformLayout {
     interface FrameValues {
         int integer(String name);
 
-        int[] integerVector(String name, int components);
+        int integerComponent(String name, int component);
 
-        float[] floatVector(String name, int components);
+        float floatComponent(String name, int component);
 
-        float[] matrix(String name, int columns);
+        float matrixComponent(String name, int columns, int column, int row);
     }
 
     private record Entry(

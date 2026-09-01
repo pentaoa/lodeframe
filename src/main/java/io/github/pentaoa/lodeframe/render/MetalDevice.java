@@ -45,7 +45,9 @@ final class MetalDevice implements GpuDeviceBackend {
     private final Map<RenderPipeline, MetalCompiledRenderPipeline> compiledPipelines = new IdentityHashMap<>();
     private final Map<RenderPipeline, ShaderSource> pipelineShaderSources = new IdentityHashMap<>();
     private final Map<ShaderCompilationKey, IntermediaryShaderModule> shaderCache = new HashMap<>();
+    private final Map<ShaderCompilationKey, Integer> shaderReferences = new HashMap<>();
     private final Map<MslFunctionKey, MemorySegment> functionCache = new HashMap<>();
+    private final Map<MslFunctionKey, Integer> functionReferences = new HashMap<>();
     private final Map<Long, MemorySegment> depthStencilStates = new HashMap<>();
     private final ShaderSource defaultShaderSource;
 
@@ -175,12 +177,14 @@ final class MetalDevice implements GpuDeviceBackend {
         this.compiledPipelines.clear();
         this.shaderCache.values().forEach(IntermediaryShaderModule::close);
         this.shaderCache.clear();
+        this.shaderReferences.clear();
         for (MemorySegment function : this.functionCache.values()) {
             if (!ObjC.isNil(function)) {
                 ObjC.release(function);
             }
         }
         this.functionCache.clear();
+        this.functionReferences.clear();
     }
 
     @Override
@@ -271,13 +275,17 @@ final class MetalDevice implements GpuDeviceBackend {
         return this.compiledPipelines.computeIfAbsent(pipeline, p -> MetalCrossShaderCompiler.compile(this, p, shaderSource));
     }
 
-    void forgetPipelineShaderSource(final RenderPipeline pipeline) {
+    void releasePipeline(final RenderPipeline pipeline) {
         this.pipelineShaderSources.remove(pipeline);
+        MetalCompiledRenderPipeline compiled = this.compiledPipelines.remove(pipeline);
+        if (compiled != null) {
+            this.commandEncoder.queueForDestroy(compiled::close);
+        }
     }
 
     IntermediaryShaderModule getOrCompileShader(final Identifier id, final ShaderType type, final ShaderDefines defines, final ShaderSource shaderSource) {
         ShaderCompilationKey key = new ShaderCompilationKey(id, type, defines);
-        return this.shaderCache.computeIfAbsent(key, k -> {
+        IntermediaryShaderModule module = this.shaderCache.computeIfAbsent(key, k -> {
             String source = shaderSource.get(k.id(), k.type());
             if (source == null) {
                 return IntermediaryShaderModule.INVALID;
@@ -289,19 +297,60 @@ final class MetalDevice implements GpuDeviceBackend {
                 throw new IllegalStateException("Failed to compile shader " + k.id(), e);
             }
         });
+        if (module != IntermediaryShaderModule.INVALID) {
+            this.shaderReferences.merge(key, 1, Integer::sum);
+        }
+        return module;
     }
 
-    private static String prepareShaderSource(final String source, final ShaderDefines defines) {
+    void releaseShader(final Identifier id, final ShaderType type, final ShaderDefines defines) {
+        ShaderCompilationKey key = new ShaderCompilationKey(id, type, defines);
+        Integer references = this.shaderReferences.get(key);
+        if (references == null) {
+            return;
+        }
+        if (references > 1) {
+            this.shaderReferences.put(key, references - 1);
+            return;
+        }
+        this.shaderReferences.remove(key);
+        IntermediaryShaderModule module = this.shaderCache.remove(key);
+        if (module != null && module != IntermediaryShaderModule.INVALID) {
+            module.close();
+        }
+    }
+
+    static String prepareShaderSource(final String source, final ShaderDefines defines) {
         String stripped = BLOCK_COMMENTS.matcher(source).replaceAll("");
         stripped = LINE_COMMENTS.matcher(stripped).replaceAll("").stripLeading();
         return GlslPreprocessor.injectDefines(stripped, defines);
     }
 
     MemorySegment getOrCompileFunction(final String msl, final String entryPoint) {
-        return this.functionCache.computeIfAbsent(
-                new MslFunctionKey(msl, entryPoint),
-                key -> this.metalDevice.newFunction(key.msl(), key.entryPoint())
+        MslFunctionKey key = new MslFunctionKey(msl, entryPoint);
+        MemorySegment function = this.functionCache.computeIfAbsent(
+                key,
+                functionKey -> this.metalDevice.newFunction(functionKey.msl(), functionKey.entryPoint())
         );
+        this.functionReferences.merge(key, 1, Integer::sum);
+        return function;
+    }
+
+    void releaseFunction(final String msl, final String entryPoint) {
+        MslFunctionKey key = new MslFunctionKey(msl, entryPoint);
+        Integer references = this.functionReferences.get(key);
+        if (references == null) {
+            return;
+        }
+        if (references > 1) {
+            this.functionReferences.put(key, references - 1);
+            return;
+        }
+        this.functionReferences.remove(key);
+        MemorySegment function = this.functionCache.remove(key);
+        if (function != null && !ObjC.isNil(function)) {
+            ObjC.release(function);
+        }
     }
 
     private record ShaderCompilationKey(Identifier id, ShaderType type, ShaderDefines defines) {

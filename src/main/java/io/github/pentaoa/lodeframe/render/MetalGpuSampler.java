@@ -61,7 +61,7 @@ final class MetalGpuSampler extends GpuSampler {
             double lodMaxClamp = toMtlMaxLodClamp(maxLod);
             descriptor.lodMaxClamp(lodMaxClamp >= 0.0 && Double.isFinite(lodMaxClamp) ? (float) lodMaxClamp : Float.MAX_VALUE);
             if (compare) {
-                descriptor.compareFunction(MTLCompareFunction.LessEqual);
+                descriptor.compareFunction(MTLCompareFunction.GreaterEqual);
             }
             this.nativeHandle = device.metalDevice().newSamplerState(descriptor);
         }

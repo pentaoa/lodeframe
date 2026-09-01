@@ -29,6 +29,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     public static final int MAX_SUBMITS_IN_FLIGHT = 3;
     private final MetalDevice device;
     private long currentSubmitIndex = MAX_SUBMITS_IN_FLIGHT;
+    private long latestCommittedSubmitIndex = -1L;
     private final InFlight[] inFlight = new InFlight[MAX_SUBMITS_IN_FLIGHT];
     private final Semaphore[] submitSemaphores = new Semaphore[MAX_SUBMITS_IN_FLIGHT];
     private final MemorySegment[] submitSignalBlocks = new MemorySegment[MAX_SUBMITS_IN_FLIGHT];
@@ -111,6 +112,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
 
             toClose = inFlight[slot];
             inFlight[slot] = new InFlight(currentSubmitIndex, commandBuffer);
+            latestCommittedSubmitIndex = currentSubmitIndex;
             commandBuffer = null;
         }
         currentSubmitIndex++;
@@ -128,19 +130,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
     }
 
     MTLRenderCommandEncoder renderCommandEncoder(
-            final MetalGpuTextureView[] colorTextureViews,
-            @Nullable final MetalGpuTextureView depthTextureView,
+            final MemorySegment[] colorAttachments,
+            final MemorySegment depthAttachment,
             final int viewportWidth,
             final int viewportHeight,
             final Vector4fc[] clearColors,
             @Nullable final Double clearDepth
     ) {
-        MemorySegment[] colorAttachments = new MemorySegment[colorTextureViews.length];
-        for (int index = 0; index < colorTextureViews.length; index++) {
-            MetalGpuTextureView textureView = colorTextureViews[index];
-            colorAttachments[index] = textureView == null ? MemorySegment.NULL : textureView.nativeHandle();
-        }
-        MemorySegment depthAttachment = depthTextureView == null ? MemorySegment.NULL : depthTextureView.nativeHandle();
         if (currentEncoder instanceof MTLRenderCommandEncoder enc
                 && sameColorAttachments(renderColorAttachments, colorAttachments)
                 && MetalPipelineSupport.sameHandle(renderDepthAttachment, depthAttachment)
@@ -171,7 +167,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
             throw new IllegalArgumentException("Metal supports at most " + MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS + " color attachments");
         }
 
-        GpuTextureView[] colorTextures = new GpuTextureView[MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS];
+        MetalGpuTextureView[] colorTextures = new MetalGpuTextureView[MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS];
         Vector4fc[] colorClears = new Vector4fc[MTLRenderPipelineDescriptor.MAX_COLOR_ATTACHMENTS];
         for (int index = 0; index < descriptorColorAttachments.size(); index++) {
             RenderPassDescriptor.Attachment<Optional<Vector4fc>> colorAttachment = descriptorColorAttachments.get(index);
@@ -179,7 +175,7 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
                 continue;
             }
 
-            GpuTextureView colorTexture = colorAttachment.textureView();
+            MetalGpuTextureView colorTexture = (MetalGpuTextureView) colorAttachment.textureView();
             MetalGpuTexture colorTex = (MetalGpuTexture) colorTexture.texture();
             Vector4fc colorClear = colorAttachment.clearValue().orElse(null);
             Vector4fc pendingColor = pendingColorClears.get(colorTex);
@@ -199,10 +195,10 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         }
 
         RenderPassDescriptor.Attachment<OptionalDouble> depthAttachment = descriptor.depthAttachment();
-        GpuTextureView depthTexture = null;
+        MetalGpuTextureView depthTexture = null;
         Double depthClear = null;
         if (depthAttachment != null) {
-            depthTexture = depthAttachment.textureView();
+            depthTexture = (MetalGpuTextureView) depthAttachment.textureView();
             OptionalDouble attachmentClear = depthAttachment.clearValue();
             depthClear = attachmentClear.isPresent() ? attachmentClear.getAsDouble() : null;
 
@@ -634,9 +630,8 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         } else {
             endEncoder();
         }
-        long latestSubmit = currentSubmitIndex - 1L;
-        if (latestSubmit >= MAX_SUBMITS_IN_FLIGHT) {
-            awaitSubmitCompletion(latestSubmit, Long.MAX_VALUE);
+        if (latestCommittedSubmitIndex >= MAX_SUBMITS_IN_FLIGHT) {
+            awaitSubmitCompletion(latestCommittedSubmitIndex, Long.MAX_VALUE);
         }
     }
 

@@ -38,27 +38,23 @@ final class ShaderPackUniformLayoutTest {
         }
 
         @Override
-        public int[] integerVector(final String name, final int components) {
-            return new int[components];
+        public int integerComponent(final String name, final int component) {
+            return 0;
         }
 
         @Override
-        public float[] floatVector(final String name, final int components) {
+        public float floatComponent(final String name, final int component) {
             return switch (name) {
-                case "viewWidth" -> new float[]{1920.0F};
-                case "sunVec" -> new float[]{1.0F, 2.0F, 3.0F};
-                case "rainStrength" -> new float[]{0.5F};
-                default -> new float[components];
+                case "viewWidth" -> component == 0 ? 1920.0F : 0.0F;
+                case "sunVec" -> component + 1.0F;
+                case "rainStrength" -> component == 0 ? 0.5F : 0.0F;
+                default -> 0.0F;
             };
         }
 
         @Override
-        public float[] matrix(final String name, final int columns) {
-            float[] result = new float[columns * columns];
-            for (int index = 0; index < columns; index++) {
-                result[index * columns + index] = 1.0F;
-            }
-            return result;
+        public float matrixComponent(final String name, final int columns, final int column, final int row) {
+            return column == row ? 1.0F : 0.0F;
         }
     }
 }

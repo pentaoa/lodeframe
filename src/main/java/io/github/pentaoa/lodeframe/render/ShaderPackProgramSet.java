@@ -16,15 +16,45 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Environment(EnvType.CLIENT)
 record ShaderPackProgramSet(
         List<ShaderPackProgramLoader.PreparedProgram> fullscreenPrograms,
         ShaderPackProgramLoader.PreparedProgram finalProgram,
+        ShaderPackProgramLoader.PreparedProgram terrainProgram,
+        ShaderPackProgramLoader.PreparedProgram waterProgram,
+        ShaderPackProgramLoader.PreparedProgram skyBasicProgram,
+        ShaderPackProgramLoader.PreparedProgram entitiesProgram,
+        ShaderPackProgramLoader.PreparedProgram entitiesGlowingProgram,
+        ShaderPackProgramLoader.PreparedProgram handProgram,
+        ShaderPackProgramLoader.PreparedProgram handWaterProgram,
+        ShaderPackProgramLoader.PreparedProgram texturedProgram,
+        ShaderPackProgramLoader.PreparedProgram weatherProgram,
+        ShaderPackProgramLoader.PreparedProgram shadowProgram,
+        int shadowMapResolution,
+        float shadowDistance,
+        float sunPathRotation,
+        byte[] noiseTexture,
         Map<Integer, GpuFormat> bufferFormats,
         Map<Integer, Boolean> bufferClears,
         Map<Integer, io.github.pentaoa.lodeframe.shaders.pack.ShaderDirectives.ClearColor> bufferClearColors
 ) {
+    private static final Pattern NOISE_TEXTURE = Pattern.compile(
+            "(?m)^[ \\t]*texture\\.noise[ \\t]*=[ \\t]*([^#\\s]+)"
+    );
+    private static final Pattern SHADOW_MAP_RESOLUTION = Pattern.compile(
+            "(?m)\\bconst[ \\t]+int[ \\t]+shadowMapResolution[ \\t]*=[ \\t]*(\\d+)[ \\t]*;"
+    );
+    private static final Pattern SHADOW_DISTANCE = Pattern.compile(
+            "(?m)\\bconst[ \\t]+float[ \\t]+shadowDistance[ \\t]*=[ \\t]*([0-9]+(?:\\.[0-9]+)?)[fF]?[ \\t]*;"
+    );
+    private static final Pattern SUN_PATH_ROTATION = Pattern.compile(
+            "(?m)\\bconst[ \\t]+float[ \\t]+sunPathRotation[ \\t]*=[ \\t]*\\(?[ \\t]*"
+                    + "(-?[ \\t]*[0-9]+(?:\\.[0-9]+)?)[fF]?[ \\t]*\\)?[ \\t]*;"
+    );
+
     ShaderPackProgramSet {
         fullscreenPrograms = List.copyOf(fullscreenPrograms);
         bufferFormats = Map.copyOf(bufferFormats);
@@ -51,6 +81,20 @@ record ShaderPackProgramSet(
         Map<Integer, Boolean> clears = new LinkedHashMap<>();
         Map<Integer, io.github.pentaoa.lodeframe.shaders.pack.ShaderDirectives.ClearColor> clearColors = new LinkedHashMap<>();
         ShaderPackProgramLoader.PreparedProgram finalProgram = null;
+        ShaderPackProgramLoader.PreparedProgram terrainProgram = null;
+        ShaderPackProgramLoader.PreparedProgram waterProgram = null;
+        ShaderPackProgramLoader.PreparedProgram skyBasicProgram = null;
+        ShaderPackProgramLoader.PreparedProgram entitiesProgram = null;
+        ShaderPackProgramLoader.PreparedProgram entitiesGlowingProgram = null;
+        ShaderPackProgramLoader.PreparedProgram handProgram = null;
+        ShaderPackProgramLoader.PreparedProgram handWaterProgram = null;
+        ShaderPackProgramLoader.PreparedProgram texturedProgram = null;
+        ShaderPackProgramLoader.PreparedProgram weatherProgram = null;
+        ShaderPackProgramLoader.PreparedProgram shadowProgram = null;
+        int shadowMapResolution = 1024;
+        float shadowDistance = 128.0F;
+        float sunPathRotation = 0.0F;
+        byte[] noiseTexture = new byte[0];
         try (ShaderPack pack = ShaderPack.open(source)) {
             for (ShaderProgram program : selected) {
                 for (Map.Entry<Integer, String> format : program.directives().bufferFormats().entrySet()) {
@@ -68,11 +112,116 @@ record ShaderPackProgramSet(
                     finalProgram = loaded;
                 }
             }
+            ShaderProgram terrain = report.programs().stream()
+                    .filter(program -> program.dimension().equals(dimension))
+                    .filter(program -> program.name().equals("gbuffers_terrain"))
+                    .filter(program -> program.stage(ShaderStage.VERTEX).isPresent())
+                    .filter(program -> program.stage(ShaderStage.FRAGMENT).isPresent())
+                    .findFirst()
+                    .orElse(null);
+            if (terrain != null) {
+                terrainProgram = ShaderPackProgramLoader.loadSodiumChunkProgram(pack, terrain, revision);
+            }
+            ShaderProgram water = report.programs().stream()
+                    .filter(program -> program.dimension().equals(dimension))
+                    .filter(program -> program.name().equals("gbuffers_water"))
+                    .filter(program -> program.stage(ShaderStage.VERTEX).isPresent())
+                    .filter(program -> program.stage(ShaderStage.FRAGMENT).isPresent())
+                    .findFirst()
+                    .orElse(null);
+            if (water != null) {
+                waterProgram = ShaderPackProgramLoader.loadSodiumChunkProgram(pack, water, revision);
+            }
+            ShaderProgram skyBasic = findProgram(report, dimension, "gbuffers_skybasic");
+            if (skyBasic != null) {
+                skyBasicProgram = ShaderPackProgramLoader.loadMinecraftPositionProgram(pack, skyBasic, revision);
+            }
+            ShaderProgram entities = findProgram(report, dimension, "gbuffers_entities");
+            if (entities != null) {
+                entitiesProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(pack, entities, revision);
+            }
+            ShaderProgram entitiesGlowing = findProgram(report, dimension, "gbuffers_entities_glowing");
+            if (entitiesGlowing != null) {
+                entitiesGlowingProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(
+                        pack,
+                        entitiesGlowing,
+                        revision
+                );
+            }
+            ShaderProgram hand = findProgram(report, dimension, "gbuffers_hand");
+            if (hand != null) {
+                handProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(pack, hand, revision);
+            }
+            ShaderProgram handWater = findProgram(report, dimension, "gbuffers_hand_water");
+            if (handWater != null) {
+                handWaterProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(pack, handWater, revision);
+            }
+            ShaderProgram textured = findProgram(report, dimension, "gbuffers_textured");
+            if (textured != null) {
+                texturedProgram = ShaderPackProgramLoader.loadMinecraftParticleProgram(pack, textured, revision);
+            }
+            ShaderProgram weather = findProgram(report, dimension, "gbuffers_weather");
+            if (weather != null) {
+                weatherProgram = ShaderPackProgramLoader.loadMinecraftParticleProgram(pack, weather, revision);
+            }
+            ShaderProgram shadow = findProgram(report, dimension, "shadow");
+            if (shadow != null) {
+                shadowProgram = ShaderPackProgramLoader.loadSodiumChunkProgram(pack, shadow, revision);
+                String shadowVertex = shadowProgram.vertex().source();
+                shadowMapResolution = matchInt(SHADOW_MAP_RESOLUTION, shadowVertex, shadowMapResolution);
+                shadowDistance = matchFloat(SHADOW_DISTANCE, shadowVertex, shadowDistance);
+                sunPathRotation = matchFloat(SUN_PATH_ROTATION, shadowVertex, sunPathRotation);
+            }
+            Matcher noise = NOISE_TEXTURE.matcher(pack.readOptional("shaders.properties"));
+            if (noise.find()) {
+                noiseTexture = pack.readOptionalBytes(noise.group(1));
+            }
         }
-        if (finalProgram == null) {
-            throw new IllegalArgumentException("Shader pack has no final vertex/fragment program in " + dimension);
-        }
-        return new ShaderPackProgramSet(prepared, finalProgram, formats, clears, clearColors);
+        return new ShaderPackProgramSet(
+                prepared,
+                finalProgram,
+                terrainProgram,
+                waterProgram,
+                skyBasicProgram,
+                entitiesProgram,
+                entitiesGlowingProgram,
+                handProgram,
+                handWaterProgram,
+                texturedProgram,
+                weatherProgram,
+                shadowProgram,
+                shadowMapResolution,
+                shadowDistance,
+                sunPathRotation,
+                noiseTexture,
+                formats,
+                clears,
+                clearColors
+        );
+    }
+
+    private static int matchInt(final Pattern pattern, final String source, final int fallback) {
+        Matcher matcher = pattern.matcher(source);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) : fallback;
+    }
+
+    private static float matchFloat(final Pattern pattern, final String source, final float fallback) {
+        Matcher matcher = pattern.matcher(source);
+        return matcher.find() ? Float.parseFloat(matcher.group(1).replaceAll("[ \\t]", "")) : fallback;
+    }
+
+    private static ShaderProgram findProgram(
+            final ShaderPackReport report,
+            final String dimension,
+            final String name
+    ) {
+        return report.programs().stream()
+                .filter(program -> program.dimension().equals(dimension))
+                .filter(program -> program.name().equals(name))
+                .filter(program -> program.stage(ShaderStage.VERTEX).isPresent())
+                .filter(program -> program.stage(ShaderStage.FRAGMENT).isPresent())
+                .findFirst()
+                .orElse(null);
     }
 
     private static String selectDimension(final ShaderPackReport report, final String preferred) {

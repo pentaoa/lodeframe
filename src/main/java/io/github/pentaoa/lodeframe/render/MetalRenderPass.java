@@ -40,10 +40,13 @@ final class MetalRenderPass implements RenderPassBackend {
     private final MetalCommandEncoder commandEncoder;
     @Nullable
     private final String label;
-    private final GpuTextureView[] colorTextures;
-    private final GpuTextureView framebufferTexture;
+    private final MetalGpuTextureView[] colorTextures;
+    private final MetalGpuTextureView framebufferTexture;
     @Nullable
-    private final GpuTextureView depthTexture;
+    private final MetalGpuTextureView depthTexture;
+    private final MemorySegment[] nativeColorAttachments;
+    private final MTLPixelFormat[] colorAttachmentFormats;
+    private final MemorySegment nativeDepthAttachment;
     private final RenderPass.RenderArea renderArea;
     private final Vector4fc[] clearColors;
     @Nullable
@@ -56,6 +59,8 @@ final class MetalRenderPass implements RenderPassBackend {
     @Nullable
     private MetalCompiledRenderPipeline compiledPipeline;
     @Nullable
+    private RenderPipeline pipeline;
+    @Nullable
     private GpuBuffer indexBuffer;
     private MTLIndexType indexType = MTLIndexType.UInt16;
     private int pushedDebugGroups = 0;
@@ -67,8 +72,8 @@ final class MetalRenderPass implements RenderPassBackend {
             final MetalDevice device,
             final MetalCommandEncoder encoder,
             final Supplier<String> label,
-            final GpuTextureView[] colorTextures,
-            @Nullable final GpuTextureView depthTexture,
+            final MetalGpuTextureView[] colorTextures,
+            @Nullable final MetalGpuTextureView depthTexture,
             final RenderPass.RenderArea renderArea,
             final Vector4fc[] clearColors,
             @Nullable final Double clearDepth
@@ -79,6 +84,12 @@ final class MetalRenderPass implements RenderPassBackend {
         this.colorTextures = colorTextures;
         this.depthTexture = depthTexture;
         this.framebufferTexture = firstAttachment(colorTextures, depthTexture);
+        this.nativeColorAttachments = new MemorySegment[colorTextures.length];
+        this.colorAttachmentFormats = new MTLPixelFormat[colorTextures.length];
+        for (int index = 0; index < colorTextures.length; index++) {
+            updateCachedColorAttachment(index, colorTextures[index]);
+        }
+        this.nativeDepthAttachment = depthTexture == null ? MemorySegment.NULL : depthTexture.nativeHandle();
         this.renderArea = renderArea;
         this.clearColors = clearColors;
         this.clearDepth = clearDepth;
@@ -105,26 +116,62 @@ final class MetalRenderPass implements RenderPassBackend {
 
     @Override
     public void setPipeline(final @NonNull RenderPipeline pipeline) {
-        MetalCompiledRenderPipeline compiled = device.getOrCompilePipeline(pipeline);
-        compiled.validateColorAttachmentFormats(colorAttachmentFormats());
+        RenderPipeline selected = this.device.shaderPackPostProcessor().overrideMinecraftGeometryPipeline(pipeline);
+        MetalCompiledRenderPipeline compiled = device.getOrCompilePipeline(selected);
+        this.pipeline = selected;
+        this.device.shaderPackPostProcessor().configureShaderPackAttachments(this, selected);
+        compiled.validateColorAttachmentFormats(this.colorAttachmentFormats);
         if (this.compiledPipeline != compiled) {
             this.compiledPipeline = compiled;
             vertexBuffersDirty = true;
             pipelineDirty = true;
         }
+        this.device.shaderPackPostProcessor().bindShaderPackResources(this, selected);
+    }
+
+    void setColorAttachment(final int location, final GpuTextureView textureView) {
+        if (location < 0 || location >= this.colorTextures.length) {
+            throw new IllegalArgumentException("Unsupported Metal color attachment " + location);
+        }
+        if (this.colorTextures[location] == textureView) {
+            return;
+        }
+        MetalGpuTexture texture = (MetalGpuTexture) textureView.texture();
+        this.commandEncoder.flushPendingClear(texture);
+        texture.markContentsDirty();
+        MetalGpuTextureView metalView = (MetalGpuTextureView) textureView;
+        this.colorTextures[location] = metalView;
+        updateCachedColorAttachment(location, metalView);
+        this.clearColors[location] = null;
     }
 
     @Override
     public void bindTexture(final @NonNull String name, @Nullable final GpuTextureView textureView, @Nullable final GpuSampler sampler) {
         if (textureView != null && sampler != null) {
-            samplers.put(name, new TextureViewAndSampler(textureView, sampler));
-            commandEncoder.flushPendingClear((MetalGpuTexture) textureView.texture());
-            markDescriptorDirty(name);
+            bindTextureAlias(name, textureView, sampler);
+            if ((name.equals("u_BlockTex") || name.equals("Sampler0")) && this.pipeline != null) {
+                this.device.shaderPackPostProcessor().bindLegacyTextureAliases(
+                        this,
+                        this.pipeline,
+                        textureView,
+                        sampler
+                );
+            }
         } else if (textureView == null && sampler == null) {
             samplers.remove(name);
         } else {
             throw new IllegalArgumentException();
         }
+    }
+
+    void bindTextureAlias(
+            final String name,
+            final GpuTextureView textureView,
+            final GpuSampler sampler
+    ) {
+        this.samplers.put(name, new TextureViewAndSampler(textureView, sampler));
+        this.commandEncoder.flushPendingClear((MetalGpuTexture) textureView.texture());
+        markDescriptorDirty(name);
     }
 
     @Override
@@ -344,14 +391,7 @@ final class MetalRenderPass implements RenderPassBackend {
     }
 
     MTLPixelFormat[] colorAttachmentFormats() {
-        MTLPixelFormat[] formats = new MTLPixelFormat[colorTextures.length];
-        for (int index = 0; index < colorTextures.length; index++) {
-            GpuTextureView texture = colorTextures[index];
-            formats[index] = texture == null
-                    ? MTLPixelFormat.Invalid
-                    : ((MetalGpuTexture) texture.texture()).mtlPixelFormat();
-        }
-        return formats;
+        return this.colorAttachmentFormats;
     }
 
     MTLPixelFormat depthAttachmentFormat() {
@@ -375,14 +415,9 @@ final class MetalRenderPass implements RenderPassBackend {
     }
 
     private MTLRenderCommandEncoder renderEncoder() {
-        MetalGpuTextureView[] colorTextureViews = new MetalGpuTextureView[colorTextures.length];
-        for (int index = 0; index < colorTextures.length; index++) {
-            colorTextureViews[index] = (MetalGpuTextureView) colorTextures[index];
-        }
-        MetalGpuTextureView depthTextureView = depthTexture == null ? null : (MetalGpuTextureView) depthTexture;
         MTLRenderCommandEncoder encoder = commandEncoder.renderCommandEncoder(
-                colorTextureViews,
-                depthTextureView,
+                nativeColorAttachments,
+                nativeDepthAttachment,
                 framebufferTexture.getWidth(0),
                 framebufferTexture.getHeight(0),
                 clearColors,
@@ -405,11 +440,11 @@ final class MetalRenderPass implements RenderPassBackend {
         return false;
     }
 
-    private static GpuTextureView firstAttachment(
-            final GpuTextureView[] colorTextures,
-            @Nullable final GpuTextureView depthTexture
+    private static MetalGpuTextureView firstAttachment(
+            final MetalGpuTextureView[] colorTextures,
+            @Nullable final MetalGpuTextureView depthTexture
     ) {
-        for (GpuTextureView colorTexture : colorTextures) {
+        for (MetalGpuTextureView colorTexture : colorTextures) {
             if (colorTexture != null) {
                 return colorTexture;
             }
@@ -418,6 +453,16 @@ final class MetalRenderPass implements RenderPassBackend {
             return depthTexture;
         }
         throw new IllegalArgumentException("Render pass requires a color or depth attachment");
+    }
+
+    private void updateCachedColorAttachment(final int location, @Nullable final MetalGpuTextureView textureView) {
+        if (textureView == null) {
+            this.nativeColorAttachments[location] = MemorySegment.NULL;
+            this.colorAttachmentFormats[location] = MTLPixelFormat.Invalid;
+            return;
+        }
+        this.nativeColorAttachments[location] = textureView.nativeHandle();
+        this.colorAttachmentFormats[location] = ((MetalGpuTexture) textureView.texture()).mtlPixelFormat();
     }
 
     void invalidateEncoderState() {
