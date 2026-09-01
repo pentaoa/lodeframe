@@ -1,0 +1,15 @@
+{
+  "lodeframe.shaderpacks.page": "光影包…",
+  "lodeframe.shaderpacks.title": "Lodeframe 光影包",
+  "lodeframe.shaderpacks.enabled": "启用光影",
+  "lodeframe.shaderpacks.pack": "光影包",
+  "lodeframe.shaderpacks.none": "未找到光影包",
+  "lodeframe.shaderpacks.open_folder": "打开光影包目录",
+  "lodeframe.shaderpacks.refresh": "刷新",
+  "lodeframe.shaderpacks.status.empty": "放入 ZIP 或光影包目录后点击刷新。",
+  "lodeframe.shaderpacks.status.enabled": "已启用：%s。渲染管线仍在接入中。",
+  "lodeframe.shaderpacks.status.disabled": "已选择：%s。光影当前关闭。",
+  "lodeframe.shaderpacks.status.folder_opened": "已打开光影包目录。",
+  "lodeframe.shaderpacks.status.folder_failed": "无法打开光影包目录。",
+  "lodeframe.shaderpacks.status.save_failed": "无法保存光影设置。"
+}

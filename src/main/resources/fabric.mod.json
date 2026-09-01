@@ -19,6 +19,11 @@
   "accessWidener": "lodeframe.accesswidener",
   "icon": "assets/lodeframe/icon.png",
   "environment": "client",
+  "entrypoints": {
+    "sodium:config_api_user": [
+      "io.github.pentaoa.lodeframe.client.shader.SodiumShaderConfigEntryPoint"
+    ]
+  },
   "mixins": [
     "lodeframe.mixins.json"
   ],
