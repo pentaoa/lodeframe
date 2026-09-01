@@ -21,11 +21,15 @@ import java.util.Map;
 record ShaderPackProgramSet(
         List<ShaderPackProgramLoader.PreparedProgram> fullscreenPrograms,
         ShaderPackProgramLoader.PreparedProgram finalProgram,
-        Map<Integer, GpuFormat> bufferFormats
+        Map<Integer, GpuFormat> bufferFormats,
+        Map<Integer, Boolean> bufferClears,
+        Map<Integer, io.github.pentaoa.lodeframe.shaders.pack.ShaderDirectives.ClearColor> bufferClearColors
 ) {
     ShaderPackProgramSet {
         fullscreenPrograms = List.copyOf(fullscreenPrograms);
         bufferFormats = Map.copyOf(bufferFormats);
+        bufferClears = Map.copyOf(bufferClears);
+        bufferClearColors = Map.copyOf(bufferClearColors);
     }
 
     static ShaderPackProgramSet load(
@@ -44,12 +48,16 @@ record ShaderPackProgramSet(
 
         List<ShaderPackProgramLoader.PreparedProgram> prepared = new ArrayList<>(selected.size());
         Map<Integer, GpuFormat> formats = new LinkedHashMap<>();
+        Map<Integer, Boolean> clears = new LinkedHashMap<>();
+        Map<Integer, io.github.pentaoa.lodeframe.shaders.pack.ShaderDirectives.ClearColor> clearColors = new LinkedHashMap<>();
         ShaderPackProgramLoader.PreparedProgram finalProgram = null;
         try (ShaderPack pack = ShaderPack.open(source)) {
             for (ShaderProgram program : selected) {
                 for (Map.Entry<Integer, String> format : program.directives().bufferFormats().entrySet()) {
                     formats.put(format.getKey(), toGpuFormat(format.getValue()));
                 }
+                clears.putAll(program.directives().bufferClears());
+                clearColors.putAll(program.directives().bufferClearColors());
                 ShaderPackProgramLoader.PreparedProgram loaded = ShaderPackProgramLoader.loadFullscreen(
                         pack,
                         program,
@@ -64,7 +72,7 @@ record ShaderPackProgramSet(
         if (finalProgram == null) {
             throw new IllegalArgumentException("Shader pack has no final vertex/fragment program in " + dimension);
         }
-        return new ShaderPackProgramSet(prepared, finalProgram, formats);
+        return new ShaderPackProgramSet(prepared, finalProgram, formats, clears, clearColors);
     }
 
     private static String selectDimension(final ShaderPackReport report, final String preferred) {

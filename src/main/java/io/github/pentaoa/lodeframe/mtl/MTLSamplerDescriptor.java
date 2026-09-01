@@ -21,6 +21,7 @@ public final class MTLSamplerDescriptor implements AutoCloseable {
     private static final Msg SET_MAX_ANISOTROPY = Msg.ofVoid("setMaxAnisotropy:", JAVA_LONG);
     private static final Msg SET_LOD_MIN_CLAMP = Msg.ofVoid("setLodMinClamp:", JAVA_FLOAT);
     private static final Msg SET_LOD_MAX_CLAMP = Msg.ofVoid("setLodMaxClamp:", JAVA_FLOAT);
+    private static final Msg SET_COMPARE_FUNCTION = Msg.ofVoid("setCompareFunction:", JAVA_LONG);
 
     private final MemorySegment handle;
 
@@ -66,6 +67,10 @@ public final class MTLSamplerDescriptor implements AutoCloseable {
 
     public void lodMaxClamp(final float clamp) {
         SET_LOD_MAX_CLAMP.send(handle, clamp);
+    }
+
+    public void compareFunction(final MTLCompareFunction function) {
+        SET_COMPARE_FUNCTION.send(handle, function.value);
     }
 
     @Override

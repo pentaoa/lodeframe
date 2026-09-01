@@ -91,8 +91,45 @@ public final class MTLBuiltinPipelines {
             }
             """;
 
+    private static final String LEGACY_DEPTH_MSL = """
+            #include <metal_stdlib>
+            using namespace metal;
+
+            struct LegacyDepthVertexOut {
+              float4 position [[position]];
+              float2 uv;
+            };
+
+            vertex LegacyDepthVertexOut lodeframe_legacy_depth_vs(uint vertexId [[vertex_id]]) {
+              const float2 positions[3] = {
+                float2(-1.0,  1.0),
+                float2( 3.0,  1.0),
+                float2(-1.0, -3.0)
+              };
+              const float2 uvs[3] = {
+                float2(0.0, 0.0),
+                float2(2.0, 0.0),
+                float2(0.0, 2.0)
+              };
+
+              LegacyDepthVertexOut out;
+              out.position = float4(positions[vertexId], 0.0, 1.0);
+              out.uv = uvs[vertexId];
+              return out;
+            }
+
+            fragment float lodeframe_legacy_depth_fs(
+              LegacyDepthVertexOut in [[stage_in]],
+              depth2d<float> depthTexture [[texture(0)]],
+              sampler nearestSampler [[sampler(0)]]
+            ) {
+              return 1.0 - depthTexture.sample(nearestSampler, in.uv);
+            }
+            """;
+
     private static MTLDevice device;
     private static MemorySegment presentPipeline = MemorySegment.NULL;
+    private static MemorySegment legacyDepthPipeline = MemorySegment.NULL;
     private static MemorySegment presentLinearSampler = MemorySegment.NULL;
     private static MemorySegment presentNearestSampler = MemorySegment.NULL;
     private static final Map<Long, MemorySegment> clearPipelines = new HashMap<>();
@@ -105,6 +142,14 @@ public final class MTLBuiltinPipelines {
         device = mtlDevice;
         presentPipeline = buildPipeline(PRESENT_MSL, "lodeframe_present_vs", "lodeframe_present_fs",
                 MTLPixelFormat.BGRA8Unorm.value, MTLPixelFormat.Invalid.value, MTLColorWriteMask.All.value);
+        legacyDepthPipeline = buildPipeline(
+                LEGACY_DEPTH_MSL,
+                "lodeframe_legacy_depth_vs",
+                "lodeframe_legacy_depth_fs",
+                MTLPixelFormat.R32Float.value,
+                MTLPixelFormat.Invalid.value,
+                MTLColorWriteMask.All.value
+        );
         presentLinearSampler = buildPresentSampler(MTLSamplerMinMagFilter.Linear);
         presentNearestSampler = buildPresentSampler(MTLSamplerMinMagFilter.Nearest);
         ensureClearPipeline(MTLPixelFormat.BGRA8Unorm.value, MTLPixelFormat.Depth32Float.value, true);
@@ -120,6 +165,10 @@ public final class MTLBuiltinPipelines {
         if (!ObjC.isNil(presentLinearSampler)) {
             ObjC.release(presentLinearSampler);
             presentLinearSampler = MemorySegment.NULL;
+        }
+        if (!ObjC.isNil(legacyDepthPipeline)) {
+            ObjC.release(legacyDepthPipeline);
+            legacyDepthPipeline = MemorySegment.NULL;
         }
         if (!ObjC.isNil(presentNearestSampler)) {
             ObjC.release(presentNearestSampler);
@@ -302,6 +351,41 @@ public final class MTLBuiltinPipelines {
 
             encoder.endEncoding();
             commandBuffer.presentDrawable(drawable);
+        }
+    }
+
+    static void encodeLegacyDepthCopy(
+            final MTLCommandBuffer commandBuffer,
+            final MemorySegment sourceDepthTexture,
+            final MemorySegment destinationColorTexture,
+            final MTLFence globalFence
+    ) {
+        try (AutoreleasePool _ = AutoreleasePool.push();
+             MTLRenderPassDescriptor renderPass = new MTLRenderPassDescriptor()) {
+            renderPass.colorAttachment(
+                    0,
+                    destinationColorTexture,
+                    MTLRenderPassDescriptor.LOAD_ACTION_DONT_CARE,
+                    MTLRenderPassDescriptor.STORE_ACTION_STORE,
+                    null
+            );
+            MTLRenderCommandEncoder encoder = commandBuffer.makeRenderCommandEncoder(renderPass);
+            if (globalFence != null) {
+                encoder.waitForFence(globalFence, MTLRenderStages.Fragment);
+            }
+
+            long width = MTLTexture.width(destinationColorTexture);
+            long height = MTLTexture.height(destinationColorTexture);
+            encoder.setViewport(0.0, 0.0, width, height, 0.0, 1.0);
+            encoder.setRenderPipelineState(legacyDepthPipeline);
+            encoder.setFragmentTexture(sourceDepthTexture, 0L);
+            encoder.setFragmentSamplerState(presentNearestSampler, 0L);
+            encoder.drawPrimitives(MTLPrimitiveType.Triangle, 0, 3, 1, 0);
+
+            if (globalFence != null) {
+                encoder.updateFence(globalFence, MTLRenderStages.Fragment);
+            }
+            encoder.endEncoding();
         }
     }
 

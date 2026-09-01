@@ -275,13 +275,22 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MetalGpuTexture source = (MetalGpuTexture) textureView.texture();
         flushPendingClear(source);
         submitRenderPass();
-        GpuTextureView presentedView = device.shaderPackPostProcessor().process(textureView);
-        MetalGpuTexture presented = (MetalGpuTexture) presentedView.texture();
-        flushPendingClear(presented);
-        submitRenderPass();
         endEncoder();
         MTLCommandBuffer commandBuffer = commandBuffer();
-        commandBuffer.encodePresentTextureToDrawable(layer, presented.nativeHandle(), fence);
+        commandBuffer.encodePresentTextureToDrawable(layer, source.nativeHandle(), fence);
+    }
+
+    void copyReversedDepthToLegacyColor(
+            final GpuTextureView sourceDepthView,
+            final GpuTextureView destinationColorView
+    ) {
+        MetalGpuTexture source = (MetalGpuTexture) sourceDepthView.texture();
+        MetalGpuTexture destination = (MetalGpuTexture) destinationColorView.texture();
+        flushPendingClear(source);
+        flushPendingClearForWrite(destination);
+        submitRenderPass();
+        endEncoder();
+        commandBuffer().encodeLegacyDepthCopy(source.nativeHandle(), destination.nativeHandle(), fence);
     }
 
     @Override

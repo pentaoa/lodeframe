@@ -165,6 +165,14 @@ public final class MTLCommandBuffer {
         MTLBuiltinPipelines.encodePresentTextureToDrawable(this, layer, sourceTexture, globalFence);
     }
 
+    public void encodeLegacyDepthCopy(
+            final MemorySegment sourceDepthTexture,
+            final MemorySegment destinationColorTexture,
+            final MTLFence globalFence
+    ) {
+        MTLBuiltinPipelines.encodeLegacyDepthCopy(this, sourceDepthTexture, destinationColorTexture, globalFence);
+    }
+
     void presentDrawable(final CAMetalDrawable drawable) {
         PRESENT_DRAWABLE.send(handle(), drawable.handle());
     }

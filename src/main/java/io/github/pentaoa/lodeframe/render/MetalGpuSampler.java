@@ -4,6 +4,7 @@ import io.github.pentaoa.lodeframe.mtl.MTLSamplerAddressMode;
 import io.github.pentaoa.lodeframe.mtl.MTLSamplerDescriptor;
 import io.github.pentaoa.lodeframe.mtl.MTLSamplerMinMagFilter;
 import io.github.pentaoa.lodeframe.mtl.MTLSamplerMipFilter;
+import io.github.pentaoa.lodeframe.mtl.MTLCompareFunction;
 import com.mojang.blaze3d.textures.AddressMode;
 import com.mojang.blaze3d.textures.FilterMode;
 import com.mojang.blaze3d.textures.GpuSampler;
@@ -35,6 +36,19 @@ final class MetalGpuSampler extends GpuSampler {
             final int maxAnisotropy,
             final OptionalDouble maxLod
     ) {
+        this(device, addressModeU, addressModeV, minFilter, magFilter, maxAnisotropy, maxLod, false);
+    }
+
+    MetalGpuSampler(
+            final MetalDevice device,
+            final AddressMode addressModeU,
+            final AddressMode addressModeV,
+            final FilterMode minFilter,
+            final FilterMode magFilter,
+            final int maxAnisotropy,
+            final OptionalDouble maxLod,
+            final boolean compare
+    ) {
         this.device = device;
         try (MTLSamplerDescriptor descriptor = MTLSamplerDescriptor.create()) {
             descriptor.minFilter(MTLSamplerMinMagFilter.from(minFilter));
@@ -46,6 +60,9 @@ final class MetalGpuSampler extends GpuSampler {
             descriptor.lodMinClamp(0.0f);
             double lodMaxClamp = toMtlMaxLodClamp(maxLod);
             descriptor.lodMaxClamp(lodMaxClamp >= 0.0 && Double.isFinite(lodMaxClamp) ? (float) lodMaxClamp : Float.MAX_VALUE);
+            if (compare) {
+                descriptor.compareFunction(MTLCompareFunction.LessEqual);
+            }
             this.nativeHandle = device.metalDevice().newSamplerState(descriptor);
         }
         this.addressModeU = addressModeU;

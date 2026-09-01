@@ -6,7 +6,9 @@
   "mixins": [
   ],
   "client": [
+    "render.GpuDeviceAccessor",
     "render.PreferredGraphicsApiMixin",
+    "render.ShaderPackWorldRenderMixin",
     "sodium.DrawBackendMixin",
     "sodium.DrawContextMixin",
     "sodium.SodiumPreferredGraphicsApiMixin"

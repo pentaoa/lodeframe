@@ -43,6 +43,7 @@ final class MetalDevice implements GpuDeviceBackend {
     private final DeviceInfo deviceInfo;
     public final MTLCommandQueue commandQueue;
     private final Map<RenderPipeline, MetalCompiledRenderPipeline> compiledPipelines = new IdentityHashMap<>();
+    private final Map<RenderPipeline, ShaderSource> pipelineShaderSources = new IdentityHashMap<>();
     private final Map<ShaderCompilationKey, IntermediaryShaderModule> shaderCache = new HashMap<>();
     private final Map<MslFunctionKey, MemorySegment> functionCache = new HashMap<>();
     private final Map<Long, MemorySegment> depthStencilStates = new HashMap<>();
@@ -160,6 +161,9 @@ final class MetalDevice implements GpuDeviceBackend {
 
     @Override
     public @NonNull CompiledRenderPipeline precompilePipeline(final @NonNull RenderPipeline pipeline, @Nullable final ShaderSource shaderSource) {
+        if (shaderSource != null) {
+            this.pipelineShaderSources.put(pipeline, shaderSource);
+        }
         ShaderSource effectiveSource = shaderSource == null ? this.defaultShaderSource : shaderSource;
         return this.compiledPipelines.computeIfAbsent(pipeline, p -> MetalCrossShaderCompiler.compile(this, p, effectiveSource));
     }
@@ -185,6 +189,7 @@ final class MetalDevice implements GpuDeviceBackend {
         this.shaderPackPostProcessor.close();
         this.commandEncoder.close();
         this.clearPipelineCache();
+        this.pipelineShaderSources.clear();
         try {
             this.cocoa.clearViewLayer();
         } catch (Throwable ignored) {
@@ -244,12 +249,30 @@ final class MetalDevice implements GpuDeviceBackend {
         return this.shaderPackPostProcessor;
     }
 
+    GpuSampler createComparisonSampler() {
+        return new MetalGpuSampler(
+                this,
+                AddressMode.CLAMP_TO_EDGE,
+                AddressMode.CLAMP_TO_EDGE,
+                FilterMode.LINEAR,
+                FilterMode.LINEAR,
+                1,
+                OptionalDouble.of(0.0),
+                true
+        );
+    }
+
     void queueResourceRelease(final MemorySegment handle) {
         this.commandEncoder.queueForDestroy(() -> ObjC.release(handle));
     }
 
     MetalCompiledRenderPipeline getOrCompilePipeline(final RenderPipeline pipeline) {
-        return this.compiledPipelines.computeIfAbsent(pipeline, p -> MetalCrossShaderCompiler.compile(this, p, this.defaultShaderSource));
+        ShaderSource shaderSource = this.pipelineShaderSources.getOrDefault(pipeline, this.defaultShaderSource);
+        return this.compiledPipelines.computeIfAbsent(pipeline, p -> MetalCrossShaderCompiler.compile(this, p, shaderSource));
+    }
+
+    void forgetPipelineShaderSource(final RenderPipeline pipeline) {
+        this.pipelineShaderSources.remove(pipeline);
     }
 
     IntermediaryShaderModule getOrCompileShader(final Identifier id, final ShaderType type, final ShaderDefines defines, final ShaderSource shaderSource) {
