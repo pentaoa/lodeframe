@@ -449,11 +449,14 @@ final class MetalRenderPass implements RenderPassBackend {
     }
 
     private void drawTriangleFan(MTLRenderCommandEncoder encoder, final int firstVertex, final int vertexCount, final int instanceCount, final int baseInstance) {
-        int triangleCount = vertexCount - 2;
-        int indexCount = triangleCount * 3;
+        int indexCount = triangleFanIndexCount(vertexCount);
+        if (indexCount == 0 || instanceCount <= 0) {
+            return;
+        }
         MTLIndexType fanIndexType = vertexCount - 1 <= 0xFFFF ? MTLIndexType.UInt16 : MTLIndexType.UInt32;
 
         try (GpuBufferSlice.MappedView mapped = commandEncoder.transientMemory().allocateGpuMapped((long) indexCount * fanIndexType.bytes, fanIndexType.bytes, GpuBuffer.USAGE_INDEX)) {
+            int triangleCount = vertexCount - 2;
             if (fanIndexType == MTLIndexType.UInt16) {
                 ShortBuffer indices = mapped.data().asShortBuffer();
                 for (int i = 0; i < triangleCount; i++) {
@@ -674,6 +677,10 @@ final class MetalRenderPass implements RenderPassBackend {
                 dirtyDescriptorMask |= 1L << binding.bindingIndex();
             }
         }
+    }
+
+    static int triangleFanIndexCount(final int vertexCount) {
+        return vertexCount < 3 ? 0 : (vertexCount - 2) * 3;
     }
 
     private void pushDescriptor(
