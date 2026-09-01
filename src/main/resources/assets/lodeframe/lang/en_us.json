@@ -7,9 +7,10 @@
   "lodeframe.shaderpacks.open_folder": "Open Shader Pack Folder",
   "lodeframe.shaderpacks.refresh": "Refresh",
   "lodeframe.shaderpacks.status.empty": "Add a ZIP or shader-pack folder, then refresh.",
-  "lodeframe.shaderpacks.status.enabled": "Enabled: %s. Renderer integration is in progress.",
+  "lodeframe.shaderpacks.status.enabled": "Enabled: %s. Final pass active; full pipeline in progress.",
   "lodeframe.shaderpacks.status.disabled": "Selected: %s. Shaders are disabled.",
   "lodeframe.shaderpacks.status.folder_opened": "Shader-pack folder opened.",
   "lodeframe.shaderpacks.status.folder_failed": "Could not open the shader-pack folder.",
+  "lodeframe.shaderpacks.status.load_failed": "Could not load the shader pack: %s",
   "lodeframe.shaderpacks.status.save_failed": "Could not save shader-pack settings."
 }

@@ -39,6 +39,7 @@ final class MetalDevice implements GpuDeviceBackend {
     private final Cocoa cocoa;
     private final GpuDebugOptions debugOptions;
     private final MetalCommandEncoder commandEncoder;
+    private final ShaderPackPostProcessor shaderPackPostProcessor;
     private final DeviceInfo deviceInfo;
     public final MTLCommandQueue commandQueue;
     private final Map<RenderPipeline, MetalCompiledRenderPipeline> compiledPipelines = new IdentityHashMap<>();
@@ -65,6 +66,7 @@ final class MetalDevice implements GpuDeviceBackend {
         this.commandQueue = this.metalDevice.newCommandQueue();
         MTLBuiltinPipelines.init(this.metalDevice);
         this.commandEncoder = new MetalCommandEncoder(this);
+        this.shaderPackPostProcessor = new ShaderPackPostProcessor(this, this.commandEncoder);
         this.deviceInfo = buildDeviceInfo(deviceName);
     }
 
@@ -180,6 +182,7 @@ final class MetalDevice implements GpuDeviceBackend {
     @Override
     public void close() {
         this.waitForSubmittedGpuWork();
+        this.shaderPackPostProcessor.close();
         this.commandEncoder.close();
         this.clearPipelineCache();
         try {
@@ -235,6 +238,10 @@ final class MetalDevice implements GpuDeviceBackend {
 
     void waitForSubmittedGpuWork() {
         this.commandEncoder.waitForSubmittedGpuWork();
+    }
+
+    ShaderPackPostProcessor shaderPackPostProcessor() {
+        return this.shaderPackPostProcessor;
     }
 
     void queueResourceRelease(final MemorySegment handle) {

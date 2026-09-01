@@ -11,3 +11,6 @@ pluginManagement {
 
 // Should match your modid
 rootProject.name = 'lodeframe'
+
+include 'lodeframe-shaders'
+project(':lodeframe-shaders').projectDir = file('modules/lodeframe-shaders')

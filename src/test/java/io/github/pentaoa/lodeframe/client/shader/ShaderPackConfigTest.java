@@ -48,4 +48,30 @@ final class ShaderPackConfigTest {
                 .map(ShaderPackSelection::displayName)
                 .toList());
     }
+
+    @Test
+    void enablingSelectionLoadsAndValidatesThePackFrontend() throws Exception {
+        Path directory = this.temporaryDirectory.resolve("shaderpacks");
+        Path pack = directory.resolve("Minimal Pack/shaders");
+        Files.createDirectories(pack);
+        Files.writeString(pack.resolve("final.vsh"), "#version 330\nvoid main() {}\n");
+        Files.writeString(pack.resolve("final.fsh"), "#version 330\nvoid main() {}\n");
+
+        Path configPath = this.temporaryDirectory.resolve("config/lodeframe-shaders.properties");
+        LodeframeShaderPacks manager = new LodeframeShaderPacks(
+                directory,
+                ShaderPackConfig.load(configPath)
+        );
+        ShaderPackSelection selection = manager.discover().getFirst();
+
+        assertTrue(manager.setEnabled(true, selection));
+        assertTrue(manager.enabled());
+        assertTrue(manager.activeReport().isPresent());
+        assertEquals(1, manager.activeReport().orElseThrow().programCount());
+        assertEquals("Minimal Pack", manager.activeReport().orElseThrow().name());
+
+        ShaderPackConfig reloaded = ShaderPackConfig.load(configPath);
+        assertTrue(reloaded.enabled());
+        assertEquals("Minimal Pack", reloaded.selectedPack());
+    }
 }

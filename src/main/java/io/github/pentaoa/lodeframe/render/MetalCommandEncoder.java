@@ -275,9 +275,13 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         MetalGpuTexture source = (MetalGpuTexture) textureView.texture();
         flushPendingClear(source);
         submitRenderPass();
+        GpuTextureView presentedView = device.shaderPackPostProcessor().process(textureView);
+        MetalGpuTexture presented = (MetalGpuTexture) presentedView.texture();
+        flushPendingClear(presented);
+        submitRenderPass();
         endEncoder();
         MTLCommandBuffer commandBuffer = commandBuffer();
-        commandBuffer.encodePresentTextureToDrawable(layer, source.nativeHandle(), fence);
+        commandBuffer.encodePresentTextureToDrawable(layer, presented.nativeHandle(), fence);
     }
 
     @Override

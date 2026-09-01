@@ -107,7 +107,12 @@ public final class ShaderPackScreen extends Screen {
 
     private void updateStatus(final boolean saved, final boolean empty) {
         if (!saved) {
-            this.status = Component.translatable("lodeframe.shaderpacks.status.save_failed");
+            this.status = this.shaderPacks.activationError().isEmpty()
+                    ? Component.translatable("lodeframe.shaderpacks.status.save_failed")
+                    : Component.translatable(
+                            "lodeframe.shaderpacks.status.load_failed",
+                            this.shaderPacks.activationError()
+                    );
         } else if (empty) {
             this.status = Component.translatable("lodeframe.shaderpacks.status.empty");
         } else if (this.shaderPacks.enabled()) {
