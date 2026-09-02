@@ -161,8 +161,8 @@ final class ShaderPackRenderGraph implements AutoCloseable {
             final MetalRenderPass pass,
             final ShaderPackProgramLoader.PreparedProgram program
     ) {
-        program.vertex().samplers().forEach(field -> bindGraphSampler(pass, field));
-        program.fragment().samplers().forEach(field -> bindGraphSampler(pass, field));
+        program.vertex().samplers().forEach(field -> bindGraphSampler(pass, program, field));
+        program.fragment().samplers().forEach(field -> bindGraphSampler(pass, program, field));
     }
 
     private void ensureResources(final GpuTextureView input) {
@@ -290,8 +290,8 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         MetalRenderPass pass = (MetalRenderPass) this.commandEncoder.createRenderPass(descriptor);
         try {
             pass.setPipeline(program.pipeline());
-            bindSamplers(pass, program.program().vertex().samplers());
-            bindSamplers(pass, program.program().fragment().samplers());
+            bindSamplers(pass, program.program(), program.program().vertex().samplers());
+            bindSamplers(pass, program.program(), program.program().fragment().samplers());
             program.bindUniforms(pass);
             pass.draw(3, 1, 0, 0);
         } finally {
@@ -301,22 +301,27 @@ final class ShaderPackRenderGraph implements AutoCloseable {
 
     private void bindSamplers(
             final MetalRenderPass pass,
+            final ShaderPackProgramLoader.PreparedProgram program,
             final List<LegacyFullscreenTransformer.SamplerField> samplers
     ) {
         for (LegacyFullscreenTransformer.SamplerField samplerField : samplers) {
-            GpuTextureView texture = textureForSampler(samplerField.name());
+            GpuTextureView texture = textureForSampler(program, samplerField.name());
+            boolean packTexture = this.packTextures.forSampler(program, samplerField.name()) != null;
             GpuSampler selectedSampler = samplerField.name().startsWith("depthtex")
                     ? this.depthSampler
                     : samplerField.type().contains("Shadow")
-                    || this.packTextures.forSampler(samplerField.name()) != null
-                    ? this.packTextures.samplerFor(samplerField)
+                    || packTexture
+                    ? this.packTextures.samplerFor(program, samplerField)
                     : this.sampler;
             pass.bindTexture(samplerField.name(), texture, selectedSampler);
         }
     }
 
-    private GpuTextureView textureForSampler(final String name) {
-        GpuTextureView customTexture = this.packTextures.forSampler(name);
+    private GpuTextureView textureForSampler(
+            final ShaderPackProgramLoader.PreparedProgram program,
+            final String name
+    ) {
+        GpuTextureView customTexture = this.packTextures.forSampler(program, name);
         if (customTexture != null) {
             return customTexture;
         }
@@ -346,13 +351,20 @@ final class ShaderPackRenderGraph implements AutoCloseable {
 
     private void bindGraphSampler(
             final MetalRenderPass pass,
+            final ShaderPackProgramLoader.PreparedProgram program,
             final LegacyFullscreenTransformer.SamplerField field
     ) {
         String name = field.name();
         if (!isGraphSampler(name)) {
             return;
         }
-        pass.bindTexture(name, textureForSampler(name), name.startsWith("depthtex") ? this.depthSampler : this.sampler);
+        boolean custom = this.packTextures.forSampler(program, name) != null;
+        pass.bindTexture(
+                name,
+                textureForSampler(program, name),
+                name.startsWith("depthtex") ? this.depthSampler
+                        : custom ? this.packTextures.samplerFor(program, field) : this.sampler
+        );
     }
 
     private static boolean isGraphSampler(final String name) {

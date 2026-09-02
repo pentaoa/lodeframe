@@ -90,8 +90,8 @@ final class ShaderPackTerrainRenderer implements AutoCloseable {
                     LegacyFullscreenTransformer.uniformBlockName(ShaderStage.FRAGMENT)
             );
         }
-        this.program.vertex().samplers().forEach(sampler -> this.packTextures.bind(pass, sampler));
-        this.program.fragment().samplers().forEach(sampler -> this.packTextures.bind(pass, sampler));
+        this.program.vertex().samplers().forEach(sampler -> this.packTextures.bind(pass, this.program, sampler));
+        this.program.fragment().samplers().forEach(sampler -> this.packTextures.bind(pass, this.program, sampler));
     }
 
     @Override

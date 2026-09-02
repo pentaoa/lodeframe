@@ -38,6 +38,7 @@ record ShaderPackProgramSet(
         float sunPathRotation,
         byte[] noiseTexture,
         ShaderPackCustomUniforms customUniforms,
+        List<ShaderPackCustomTexture> customTextures,
         Map<Integer, GpuFormat> bufferFormats,
         Map<Integer, Boolean> bufferClears,
         Map<Integer, io.github.pentaoa.lodeframe.shaders.pack.ShaderDirectives.ClearColor> bufferClearColors
@@ -59,6 +60,7 @@ record ShaderPackProgramSet(
 
     ShaderPackProgramSet {
         fullscreenPrograms = List.copyOf(fullscreenPrograms);
+        customTextures = List.copyOf(customTextures);
         bufferFormats = Map.copyOf(bufferFormats);
         bufferClears = Map.copyOf(bufferClears);
         bufferClearColors = Map.copyOf(bufferClearColors);
@@ -98,6 +100,7 @@ record ShaderPackProgramSet(
         float sunPathRotation = 0.0F;
         byte[] noiseTexture = new byte[0];
         ShaderPackCustomUniforms customUniforms = ShaderPackCustomUniforms.empty();
+        List<ShaderPackCustomTexture> customTextures = List.of();
         try (ShaderPack pack = ShaderPack.open(source)) {
             for (ShaderProgram program : selected) {
                 for (Map.Entry<Integer, String> format : program.directives().bufferFormats().entrySet()) {
@@ -177,6 +180,7 @@ record ShaderPackProgramSet(
             }
             String properties = pack.readOptional("shaders.properties");
             customUniforms = ShaderPackCustomUniforms.parse(properties, MC_VERSION);
+            customTextures = ShaderPackCustomTexture.load(pack, properties);
             Matcher noise = NOISE_TEXTURE.matcher(properties);
             if (noise.find()) {
                 noiseTexture = pack.readOptionalBytes(noise.group(1));
@@ -200,6 +204,7 @@ record ShaderPackProgramSet(
                 sunPathRotation,
                 noiseTexture,
                 customUniforms,
+                customTextures,
                 formats,
                 clears,
                 clearColors

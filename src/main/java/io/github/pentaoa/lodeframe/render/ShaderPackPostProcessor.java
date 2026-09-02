@@ -676,7 +676,8 @@ final class ShaderPackPostProcessor implements AutoCloseable {
             this.textureResources = new ShaderPackTextureResources(
                     this.device,
                     this.commandEncoder,
-                    this.programSet.noiseTexture()
+                    this.programSet.noiseTexture(),
+                    this.programSet.customTextures()
             );
             if (this.programSet.terrainProgram() != null) {
                 this.terrainRenderer = new ShaderPackTerrainRenderer(

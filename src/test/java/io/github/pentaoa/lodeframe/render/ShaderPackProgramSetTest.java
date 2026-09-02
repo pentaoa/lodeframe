@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -39,6 +40,12 @@ final class ShaderPackProgramSetTest {
         writeParticlePair(root, "gbuffers_textured");
         writeParticlePair(root, "gbuffers_weather");
         writeShadowPair(root);
+        Files.writeString(root.resolve("shaders/shaders.properties"), "texture.composite.colortex7=tex/dirt.png\n");
+        Files.createDirectories(root.resolve("shaders/tex"));
+        Files.write(root.resolve("shaders/tex/dirt.png"), new byte[]{1, 2, 3});
+        Files.writeString(root.resolve("shaders/tex/dirt.png.mcmeta"), """
+                {"texture":{"blur":true,"clamp":true}}
+                """);
 
         ShaderPackReport report;
         try (ShaderPack pack = ShaderPack.open(root)) {
@@ -74,6 +81,15 @@ final class ShaderPackProgramSetTest {
         assertEquals(-40.0F, set.sunPathRotation(), set.shadowProgram().vertex().source());
         assertEquals(GpuFormat.RG11B10_FLOAT, set.bufferFormats().get(0));
         assertEquals(GpuFormat.RGBA8_UNORM, set.bufferFormats().get(1));
+        assertEquals(1, set.customTextures().size());
+        ShaderPackCustomTexture customTexture = set.customTextures().getFirst();
+        assertEquals("composite", customTexture.stage());
+        assertEquals("colortex7", customTexture.sampler());
+        assertEquals("tex/dirt.png", customTexture.path());
+        assertArrayEquals(new byte[]{1, 2, 3}, customTexture.source());
+        assertEquals(true, customTexture.blur());
+        assertEquals(true, customTexture.clamp());
+        assertEquals(true, customTexture.appliesTo(set.fullscreenPrograms().getFirst().program().type()));
     }
 
     @Test
