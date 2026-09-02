@@ -11,7 +11,7 @@ import java.lang.foreign.MemorySegment;
 import static java.lang.foreign.ValueLayout.*;
 
 @Environment(EnvType.CLIENT)
-public final class CAMetalLayer {
+public final class CAMetalLayer implements AutoCloseable {
     private static final MemorySegment CLS = ObjC.clazz("CAMetalLayer");
     private static final Msg NEW = Msg.of("new", ADDRESS);
     private static final Msg SET_DEVICE = Msg.ofVoid("setDevice:", ADDRESS);
@@ -25,7 +25,7 @@ public final class CAMetalLayer {
     private static final Msg SET_DISPLAY_SYNC_ENABLED = Msg.ofVoid("setDisplaySyncEnabled:", JAVA_BOOLEAN);
     private static final Msg NEXT_DRAWABLE = Msg.of("nextDrawable", true, ADDRESS);
 
-    private final MemorySegment handle;
+    private MemorySegment handle;
 
     public CAMetalLayer(final MTLDevice device, final double contentsScale) {
         this.handle = NEW.sendPtr(CLS);
@@ -39,6 +39,9 @@ public final class CAMetalLayer {
     }
 
     public MemorySegment handle() {
+        if (ObjC.isNil(this.handle)) {
+            throw new IllegalStateException("CAMetalLayer is closed");
+        }
         return this.handle;
     }
 
@@ -54,5 +57,14 @@ public final class CAMetalLayer {
     CAMetalDrawable nextDrawable() {
         MemorySegment drawable = NEXT_DRAWABLE.sendPtr(this.handle);
         return ObjC.isNil(drawable) ? null : new CAMetalDrawable(drawable);
+    }
+
+    @Override
+    public void close() {
+        if (ObjC.isNil(this.handle)) {
+            return;
+        }
+        ObjC.release(this.handle);
+        this.handle = MemorySegment.NULL;
     }
 }
