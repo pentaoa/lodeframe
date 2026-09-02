@@ -5,6 +5,7 @@ import io.github.pentaoa.lodeframe.shaders.pack.ShaderPack;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderPackReport;
 import io.github.pentaoa.lodeframe.shaders.pack.ShaderPackScanner;
 import io.github.pentaoa.lodeframe.render.sodium.ShaderPackBlockIds;
+import io.github.pentaoa.lodeframe.render.ShaderPackItemIds;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.IOException;
@@ -122,6 +123,7 @@ public final class LodeframeShaderPacks {
                 return false;
             }
             ShaderPackBlockIds.load(pack);
+            ShaderPackItemIds.load(pack);
             this.activeReport = report;
             this.activeSource = source;
             this.revision++;
@@ -149,6 +151,7 @@ public final class LodeframeShaderPacks {
         this.activeReport = null;
         this.activeSource = null;
         ShaderPackBlockIds.clear();
+        ShaderPackItemIds.clear();
     }
 
     private void restoreConfiguredPack() {

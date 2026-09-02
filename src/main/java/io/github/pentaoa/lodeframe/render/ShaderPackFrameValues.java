@@ -4,7 +4,8 @@ record ShaderPackFrameValues(
         int width,
         int height,
         int frame,
-        float time,
+        float frameTime,
+        float frameTimeCounter,
         ShaderPackFrameContext context,
         float[] previousProjection,
         float[] previousModelView,
@@ -20,7 +21,13 @@ record ShaderPackFrameValues(
             case "worldTime" -> this.context.worldTime();
             case "moonPhase" -> this.context.moonPhase();
             case "isEyeInWater" -> this.context.isEyeInWater();
-            case "eyeBrightness", "eyeBrightnessSmooth" -> 240;
+            case "eyeBrightness", "eyeBrightnessSmooth" -> this.context.eyeBrightnessBlock();
+            case "bedrockLevel" -> this.context.bedrockLevel();
+            case "heightLimit" -> this.context.heightLimit();
+            case "heldItemId" -> this.context.heldItemId();
+            case "heldItemId2" -> this.context.heldItemId2();
+            case "heldBlockLightValue" -> this.context.heldBlockLightValue();
+            case "heldBlockLightValue2" -> this.context.heldBlockLightValue2();
             case "atlasSize" -> 0;
             case "isRightHanded" -> 1;
             default -> 0;
@@ -32,7 +39,12 @@ record ShaderPackFrameValues(
         if (name.equals("atlasSize")) {
             return component == 0 ? this.context.atlasWidth() : component == 1 ? this.context.atlasHeight() : 0;
         }
-        return name.equals("eyeBrightness") || name.equals("eyeBrightnessSmooth") ? 240 : 0;
+        if (name.equals("eyeBrightness") || name.equals("eyeBrightnessSmooth")) {
+            return component == 0
+                    ? this.context.eyeBrightnessBlock()
+                    : component == 1 ? this.context.eyeBrightnessSky() : 0;
+        }
+        return 0;
     }
 
     @Override
@@ -41,8 +53,10 @@ record ShaderPackFrameValues(
             case "viewWidth" -> component == 0 ? this.width : 0.0F;
             case "viewHeight" -> component == 0 ? this.height : 0.0F;
             case "aspectRatio" -> component == 0 ? (float) this.width / this.height : 0.0F;
-            case "frameTimeCounter" -> component == 0 ? this.time : 0.0F;
-            case "frameTime" -> component == 0 ? 1.0F / 60.0F : 0.0F;
+            case "frameTimeCounter" -> component == 0 ? this.frameTimeCounter : 0.0F;
+            case "frameTime" -> component == 0 ? this.frameTime : 0.0F;
+            case "framemod2" -> component == 0 ? this.frame % 2 : 0.0F;
+            case "framemod8" -> component == 0 ? this.frame % 8 : 0.0F;
             case "near" -> component == 0 ? this.context.near() : 0.0F;
             case "far" -> component == 0 ? this.context.far() : 0.0F;
             case "cameraPosition" -> switch (component) {
@@ -57,6 +71,12 @@ record ShaderPackFrameValues(
                 case 2 -> this.previousCameraZ;
                 default -> 0.0F;
             };
+            case "relativeEyePosition" -> switch (component) {
+                case 0 -> this.context.relativeEyeX();
+                case 1 -> this.context.relativeEyeY();
+                case 2 -> this.context.relativeEyeZ();
+                default -> 0.0F;
+            };
             case "rainStrength", "wetness" -> component == 0 ? this.context.rainStrength() : 0.0F;
             case "thunderStrength" -> component == 0 ? this.context.thunderStrength() : 0.0F;
             case "timeAngle", "sunAngle" -> component == 0 ? this.context.timeAngle() : 0.0F;
@@ -65,6 +85,9 @@ record ShaderPackFrameValues(
             case "screenBrightness" -> component == 0 ? this.context.screenBrightness() : 0.0F;
             case "cloudHeight" -> component == 0 ? this.context.cloudHeight() : 0.0F;
             case "endFlashIntensity" -> component == 0 ? this.context.endFlashIntensity() : 0.0F;
+            // A far-plane fallback keeps optional depth-of-field disabled until the
+            // center-depth smoothing pass is available.
+            case "centerDepthSmooth" -> component == 0 ? 1.0F : 0.0F;
             case "cameraPositionFract" -> switch (component) {
                 case 0 -> this.context.cameraX() - (float) Math.floor(this.context.cameraX());
                 case 1 -> this.context.cameraY() - (float) Math.floor(this.context.cameraY());

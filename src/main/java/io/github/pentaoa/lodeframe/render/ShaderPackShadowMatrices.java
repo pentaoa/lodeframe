@@ -19,8 +19,7 @@ record ShaderPackShadowMatrices(
     ) {
         float angle = context.timeAngle() - 0.25F;
         angle -= (float) Math.floor(angle);
-        angle = (angle + ((float) Math.cos(angle * Math.PI) * -0.5F + 0.5F - angle) / 3.0F)
-                * ((float) Math.PI * 2.0F);
+        angle *= (float) Math.PI * 2.0F;
         float path = (float) Math.toRadians(sunPathRotationDegrees);
         Vector3f towardSun = new Vector3f(
                 -(float) Math.sin(angle),

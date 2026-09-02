@@ -131,6 +131,8 @@ public final class ShaderPackRenderHooks {
                 gameRenderer.gameRenderState().levelRenderState.cameraRenderState,
                 gameRenderer.gameRenderState().levelRenderState,
                 minecraft.level,
+                minecraft.getCameraEntity(),
+                minecraft.player,
                 deltaTracker.getGameTimeDeltaPartialTick(false),
                 blockAtlas.getWidth(0),
                 blockAtlas.getHeight(0),
