@@ -30,6 +30,8 @@ final class ShaderPackProgramSetTest {
                 gl_FragData[1] = vec4(1.0);
                 """);
         writePair(root, "world0/final", "gl_FragColor = vec4(1.0);\n");
+        writePair(root, "world0/composite1", "#define ENABLED\ngl_FragColor = vec4(1.0);\n");
+        writePair(root, "world0/composite2", "gl_FragColor = vec4(1.0);\n");
         writeTerrainPair(root);
         writeChunkPair(root, "gbuffers_water");
         writePositionPair(root, "gbuffers_skybasic");
@@ -40,7 +42,11 @@ final class ShaderPackProgramSetTest {
         writeParticlePair(root, "gbuffers_textured");
         writeParticlePair(root, "gbuffers_weather");
         writeShadowPair(root);
-        Files.writeString(root.resolve("shaders/shaders.properties"), "texture.composite.colortex7=tex/dirt.png\n");
+        Files.writeString(root.resolve("shaders/shaders.properties"), """
+                program.world0/composite1.enabled=ENABLED
+                program.world0/composite2.enabled=DISABLED
+                texture.composite.colortex7=tex/dirt.png
+                """);
         Files.createDirectories(root.resolve("shaders/tex"));
         Files.write(root.resolve("shaders/tex/dirt.png"), new byte[]{1, 2, 3});
         Files.writeString(root.resolve("shaders/tex/dirt.png.mcmeta"), """
@@ -53,8 +59,9 @@ final class ShaderPackProgramSetTest {
         }
         ShaderPackProgramSet set = ShaderPackProgramSet.load(root, report, "world0", 2L);
 
-        assertEquals(2, set.fullscreenPrograms().size());
+        assertEquals(3, set.fullscreenPrograms().size());
         assertEquals("composite", set.fullscreenPrograms().getFirst().program().name());
+        assertEquals("composite1", set.fullscreenPrograms().get(1).program().name());
         assertEquals("final", set.finalProgram().program().name());
         assertNotNull(set.terrainProgram());
         assertEquals("gbuffers_terrain", set.terrainProgram().program().name());

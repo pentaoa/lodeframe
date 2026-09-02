@@ -21,9 +21,44 @@ import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
 final class ShaderPackRealPackCompileTest {
+    @Test
+    void selectsTheExpectedBslDefaultProgramSequence() throws Exception {
+        String configured = System.getenv("LODEFRAME_SHADER_PACK");
+        Assumptions.assumeTrue(configured != null && !configured.isBlank());
+        Path source = Path.of(configured);
+        Assumptions.assumeTrue(source.getFileName().toString().startsWith("BSL_v10.1.3"));
+
+        ShaderPackReport report;
+        try (ShaderPack pack = ShaderPack.open(source)) {
+            report = new ShaderPackScanner().scan(pack);
+        }
+        ShaderPackProgramSet set = ShaderPackProgramSet.load(source, report, "world0", 98L);
+
+        assertEquals(
+                List.of(
+                        "deferred",
+                        "deferred1",
+                        "composite",
+                        "composite1",
+                        "composite4",
+                        "composite5",
+                        "composite6",
+                        "composite7",
+                        "final"
+                ),
+                set.fullscreenPrograms().stream().map(program -> program.program().name()).toList()
+        );
+        assertNotNull(set.shadowProgram());
+        assertEquals(1, set.customTextures().size());
+    }
+
     @Test
     void compilesEverySelectedProgramThroughNativeMetal() throws Exception {
         String configured = System.getenv("LODEFRAME_SHADER_PACK");

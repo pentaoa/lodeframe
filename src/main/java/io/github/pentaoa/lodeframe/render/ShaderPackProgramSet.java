@@ -56,7 +56,7 @@ record ShaderPackProgramSet(
             "(?m)\\bconst[ \\t]+float[ \\t]+sunPathRotation[ \\t]*=[ \\t]*\\(?[ \\t]*"
                     + "(-?[ \\t]*[0-9]+(?:\\.[0-9]+)?)[fF]?[ \\t]*\\)?[ \\t]*;"
     );
-    private static final int MC_VERSION = 260200;
+    private static final int MC_VERSION = 12602;
 
     ShaderPackProgramSet {
         fullscreenPrograms = List.copyOf(fullscreenPrograms);
@@ -102,7 +102,12 @@ record ShaderPackProgramSet(
         ShaderPackCustomUniforms customUniforms = ShaderPackCustomUniforms.empty();
         List<ShaderPackCustomTexture> customTextures = List.of();
         try (ShaderPack pack = ShaderPack.open(source)) {
+            String properties = pack.readOptional("shaders.properties");
+            ShaderPackProgramConditions programConditions = ShaderPackProgramConditions.parse(properties);
             for (ShaderProgram program : selected) {
+                if (!programConditions.enabled(pack, program)) {
+                    continue;
+                }
                 for (Map.Entry<Integer, String> format : program.directives().bufferFormats().entrySet()) {
                     formats.put(format.getKey(), toGpuFormat(format.getValue()));
                 }
@@ -125,7 +130,7 @@ record ShaderPackProgramSet(
                     .filter(program -> program.stage(ShaderStage.FRAGMENT).isPresent())
                     .findFirst()
                     .orElse(null);
-            if (terrain != null) {
+            if (terrain != null && programConditions.enabled(pack, terrain)) {
                 terrainProgram = ShaderPackProgramLoader.loadSodiumChunkProgram(pack, terrain, revision);
             }
             ShaderProgram water = report.programs().stream()
@@ -135,19 +140,19 @@ record ShaderPackProgramSet(
                     .filter(program -> program.stage(ShaderStage.FRAGMENT).isPresent())
                     .findFirst()
                     .orElse(null);
-            if (water != null) {
+            if (water != null && programConditions.enabled(pack, water)) {
                 waterProgram = ShaderPackProgramLoader.loadSodiumChunkProgram(pack, water, revision);
             }
             ShaderProgram skyBasic = findProgram(report, dimension, "gbuffers_skybasic");
-            if (skyBasic != null) {
+            if (skyBasic != null && programConditions.enabled(pack, skyBasic)) {
                 skyBasicProgram = ShaderPackProgramLoader.loadMinecraftPositionProgram(pack, skyBasic, revision);
             }
             ShaderProgram entities = findProgram(report, dimension, "gbuffers_entities");
-            if (entities != null) {
+            if (entities != null && programConditions.enabled(pack, entities)) {
                 entitiesProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(pack, entities, revision);
             }
             ShaderProgram entitiesGlowing = findProgram(report, dimension, "gbuffers_entities_glowing");
-            if (entitiesGlowing != null) {
+            if (entitiesGlowing != null && programConditions.enabled(pack, entitiesGlowing)) {
                 entitiesGlowingProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(
                         pack,
                         entitiesGlowing,
@@ -155,30 +160,29 @@ record ShaderPackProgramSet(
                 );
             }
             ShaderProgram hand = findProgram(report, dimension, "gbuffers_hand");
-            if (hand != null) {
+            if (hand != null && programConditions.enabled(pack, hand)) {
                 handProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(pack, hand, revision);
             }
             ShaderProgram handWater = findProgram(report, dimension, "gbuffers_hand_water");
-            if (handWater != null) {
+            if (handWater != null && programConditions.enabled(pack, handWater)) {
                 handWaterProgram = ShaderPackProgramLoader.loadMinecraftEntityProgram(pack, handWater, revision);
             }
             ShaderProgram textured = findProgram(report, dimension, "gbuffers_textured");
-            if (textured != null) {
+            if (textured != null && programConditions.enabled(pack, textured)) {
                 texturedProgram = ShaderPackProgramLoader.loadMinecraftParticleProgram(pack, textured, revision);
             }
             ShaderProgram weather = findProgram(report, dimension, "gbuffers_weather");
-            if (weather != null) {
+            if (weather != null && programConditions.enabled(pack, weather)) {
                 weatherProgram = ShaderPackProgramLoader.loadMinecraftParticleProgram(pack, weather, revision);
             }
             ShaderProgram shadow = findProgram(report, dimension, "shadow");
-            if (shadow != null) {
+            if (shadow != null && programConditions.enabled(pack, shadow)) {
                 shadowProgram = ShaderPackProgramLoader.loadSodiumChunkProgram(pack, shadow, revision);
                 String shadowVertex = shadowProgram.vertex().source();
                 shadowMapResolution = matchInt(SHADOW_MAP_RESOLUTION, shadowVertex, shadowMapResolution);
                 shadowDistance = matchFloat(SHADOW_DISTANCE, shadowVertex, shadowDistance);
                 sunPathRotation = matchFloat(SUN_PATH_ROTATION, shadowVertex, sunPathRotation);
             }
-            String properties = pack.readOptional("shaders.properties");
             customUniforms = ShaderPackCustomUniforms.parse(properties, MC_VERSION);
             customTextures = ShaderPackCustomTexture.load(pack, properties);
             Matcher noise = NOISE_TEXTURE.matcher(properties);

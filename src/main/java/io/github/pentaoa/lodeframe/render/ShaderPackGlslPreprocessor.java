@@ -10,7 +10,9 @@ import org.lwjgl.util.shaderc.Shaderc;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 @Environment(EnvType.CLIENT)
@@ -29,6 +31,29 @@ final class ShaderPackGlslPreprocessor {
         String preprocessed = preprocessSource(instrumented.source(), ShaderType.FRAGMENT);
         ShaderDirectiveParser.ResolvedDirectives resolved = instrumented.resolve(preprocessed);
         return new FragmentSource(resolved.source(), resolved.renderTargets());
+    }
+
+    static Set<String> definedMacros(
+            final String source,
+            final ShaderType stage,
+            final Set<String> candidates
+    ) {
+        if (candidates.isEmpty()) {
+            return Set.of();
+        }
+        StringBuilder instrumented = new StringBuilder(source);
+        candidates.stream().sorted().forEach(candidate -> instrumented
+                .append("\n#ifdef ").append(candidate)
+                .append("\nconst int lodeframe_option_").append(candidate).append(" = 1;")
+                .append("\n#endif\n"));
+        String preprocessed = preprocessSource(instrumented.toString(), stage);
+        Set<String> defined = new LinkedHashSet<>();
+        for (String candidate : candidates) {
+            if (preprocessed.contains("lodeframe_option_" + candidate)) {
+                defined.add(candidate);
+            }
+        }
+        return Set.copyOf(defined);
     }
 
     private static String preprocessSource(final String source, final ShaderType stage) {
