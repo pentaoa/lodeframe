@@ -17,7 +17,7 @@ record ShaderPackShadowMatrices(
             final float sunPathRotationDegrees,
             final int resolution
     ) {
-        float angle = context.timeAngle() - 0.25F;
+        float angle = context.sunAngle() - 0.25F;
         angle -= (float) Math.floor(angle);
         angle *= (float) Math.PI * 2.0F;
         float path = (float) Math.toRadians(sunPathRotationDegrees);

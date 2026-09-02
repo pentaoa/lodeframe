@@ -10,6 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 final class ShaderPackFrameContextTest {
     @Test
+    void keepsLinearPackTimeSeparateFromTheRenderedSunAngle() {
+        assertEquals(0.25F, ShaderPackFrameContext.linearTimeAngle(6000), 0.00001F);
+        assertEquals(0.25F, ShaderPackFrameContext.normalizedSunAngle(0.0F), 0.00001F);
+        assertEquals(0.0F, ShaderPackFrameContext.normalizedSunAngle(-(float) Math.PI / 2.0F), 0.00001F);
+    }
+
+    @Test
     void remapsMetalReversedDepthProjectionToLegacyOpenGlClipDepth() {
         float near = 0.05F;
         float far = 1024.0F;

@@ -671,6 +671,11 @@ final class MetalCommandEncoder implements CommandEncoderBackend {
         texture.recordMaterializedClear(colorClear, depthClear);
     }
 
+    void discardPendingClears(final MetalGpuTexture texture) {
+        pendingColorClears.remove(texture);
+        pendingDepthClears.remove(texture);
+    }
+
     private static boolean isFullTextureView(final GpuTextureView textureView) {
         return textureView.baseMipLevel() == 0
                 && textureView.mipLevels() >= textureView.texture().getMipLevels()

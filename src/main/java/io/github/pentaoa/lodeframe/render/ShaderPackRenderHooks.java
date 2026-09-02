@@ -31,6 +31,7 @@ public final class ShaderPackRenderHooks {
         if (backend instanceof MetalDevice metalDevice) {
             metalDevice.shaderPackPostProcessor().processWorld(
                     gameRenderer.mainRenderTarget().getColorTextureView(),
+                    gameRenderer.mainRenderTarget().getDepthTextureView(),
                     frameContext(gameRenderer, deltaTracker)
             );
         }
@@ -70,10 +71,17 @@ public final class ShaderPackRenderHooks {
         }
     }
 
-    public static void captureWorldDepth(final RenderTarget renderTarget) {
+    public static void capturePreTranslucentDepth(final RenderTarget renderTarget) {
         GpuDeviceBackend backend = ((GpuDeviceAccessor) (Object) RenderSystem.getDevice()).lodeframe$getBackend();
         if (backend instanceof MetalDevice metalDevice) {
-            metalDevice.shaderPackPostProcessor().captureWorldDepth(renderTarget.getDepthTextureView());
+            metalDevice.shaderPackPostProcessor().capturePreTranslucentDepth(renderTarget.getDepthTextureView());
+        }
+    }
+
+    public static void capturePreHandDepth(final RenderTarget renderTarget) {
+        GpuDeviceBackend backend = ((GpuDeviceAccessor) (Object) RenderSystem.getDevice()).lodeframe$getBackend();
+        if (backend instanceof MetalDevice metalDevice) {
+            metalDevice.shaderPackPostProcessor().capturePreHandDepth(renderTarget.getDepthTextureView());
         }
     }
 

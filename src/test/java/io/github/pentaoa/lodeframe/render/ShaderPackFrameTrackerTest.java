@@ -49,6 +49,9 @@ final class ShaderPackFrameTrackerTest {
         assertEquals(240, values.integerComponent("eyeBrightness", 0));
         assertEquals(240, values.integerComponent("eyeBrightness", 1));
         assertEquals(1.0F, values.floatComponent("centerDepthSmooth", 0));
+        assertEquals(1.0F, ShaderPackFrameValues.shadowFade(12000), 0.00001F);
+        assertEquals(0.0F, ShaderPackFrameValues.shadowFade(12560), 0.00001F);
+        assertEquals(1.0F, ShaderPackFrameValues.shadowFade(13230), 0.00001F);
     }
 
     private static ShaderPackFrameContext context() {

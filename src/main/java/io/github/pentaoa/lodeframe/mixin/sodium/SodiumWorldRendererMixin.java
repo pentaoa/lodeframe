@@ -5,6 +5,7 @@ import com.mojang.blaze3d.textures.GpuSampler;
 import net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer;
 import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
 import net.minecraft.client.renderer.chunk.ChunkSectionLayerGroup;
+import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -22,6 +23,9 @@ abstract class SodiumWorldRendererMixin {
             final GpuSampler blockSampler,
             final CallbackInfo ci
     ) {
+        if (group == ChunkSectionLayerGroup.TRANSLUCENT) {
+            ShaderPackRenderHooks.capturePreTranslucentDepth(Minecraft.getInstance().gameRenderer.mainRenderTarget());
+        }
         ShaderPackRenderHooks.renderShadows(
                 (SodiumWorldRenderer) (Object) this,
                 group,

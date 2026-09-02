@@ -84,12 +84,23 @@ final class ShaderPackPostProcessor implements AutoCloseable {
         this.commandEncoder = commandEncoder;
     }
 
-    void captureWorldDepth(final GpuTextureView depthView) {
+    void capturePreTranslucentDepth(final GpuTextureView depthView) {
         if (!prepareActiveGraph()) {
             return;
         }
         try {
-            this.renderGraph.captureWorldDepth(depthView);
+            this.renderGraph.capturePreTranslucentDepth(depthView);
+        } catch (RuntimeException exception) {
+            failGraph(exception);
+        }
+    }
+
+    void capturePreHandDepth(final GpuTextureView depthView) {
+        if (!prepareActiveGraph()) {
+            return;
+        }
+        try {
+            this.renderGraph.capturePreHandDepth(depthView);
         } catch (RuntimeException exception) {
             failGraph(exception);
         }
@@ -222,6 +233,10 @@ final class ShaderPackPostProcessor implements AutoCloseable {
         } else if (this.shadowRenderer != null && this.shadowRenderer.owns(pipeline)) {
             this.shadowRenderer.bindResources(pass);
         }
+        ShaderPackProgramLoader.PreparedProgram program = programForPipeline(pipeline);
+        if (program != null && this.renderGraph != null) {
+            this.renderGraph.bindGeometrySamplers(pass, program);
+        }
     }
 
     void configureShaderPackAttachments(final MetalRenderPass pass, final RenderPipeline pipeline) {
@@ -294,6 +309,18 @@ final class ShaderPackPostProcessor implements AutoCloseable {
         }
         if (this.waterRenderer != null && this.waterRenderer.owns(pipeline)) {
             return this.waterRenderer.program();
+        }
+        if (this.skyBasicRenderer != null && this.skyBasicRenderer.owns(pipeline)) {
+            return this.skyBasicRenderer.program();
+        }
+        if (this.skySunsetRenderer != null && this.skySunsetRenderer.owns(pipeline)) {
+            return this.skySunsetRenderer.program();
+        }
+        if (this.skyCelestialRenderer != null && this.skyCelestialRenderer.owns(pipeline)) {
+            return this.skyCelestialRenderer.program();
+        }
+        if (this.skyStarsRenderer != null && this.skyStarsRenderer.owns(pipeline)) {
+            return this.skyStarsRenderer.program();
         }
         if (this.entitiesRenderer != null && this.entitiesRenderer.owns(pipeline)) {
             return this.entitiesRenderer.program();
@@ -520,7 +547,20 @@ final class ShaderPackPostProcessor implements AutoCloseable {
         return null;
     }
 
-    void processWorld(final GpuTextureView colorView, final ShaderPackFrameContext frameContext) {
+    void processWorld(
+            final GpuTextureView colorView,
+            final GpuTextureView depthView,
+            final ShaderPackFrameContext frameContext
+    ) {
+        selectDimension(frameContext);
+        if (prepareActiveGraph()) {
+            try {
+                this.renderGraph.captureFinalDepth(depthView);
+            } catch (RuntimeException exception) {
+                failGraph(exception);
+                return;
+            }
+        }
         GpuTextureView result = process(colorView, frameContext);
         if (result == colorView) {
             return;

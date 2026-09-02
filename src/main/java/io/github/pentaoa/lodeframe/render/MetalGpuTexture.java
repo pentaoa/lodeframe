@@ -116,6 +116,7 @@ final class MetalGpuTexture extends GpuTexture {
         if (this.closed && this.views == 0 && this.nativeHandle != null) {
             MemorySegment handle = this.nativeHandle;
             this.nativeHandle = null;
+            this.device.discardPendingClears(this);
             this.device.queueResourceRelease(handle);
         }
     }

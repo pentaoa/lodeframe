@@ -22,6 +22,9 @@ final class MetalGpuTextureView extends GpuTextureView {
     }
 
     MemorySegment nativeHandle() {
+        if (this.closed) {
+            throw new IllegalStateException("Native Metal texture view is closed");
+        }
         if (this.nativeHandle == null) {
             MetalGpuTexture texture = (MetalGpuTexture) this.texture();
             if (this.baseMipLevel() == 0 && this.mipLevels() >= texture.getMipLevels()) {
@@ -48,10 +51,12 @@ final class MetalGpuTextureView extends GpuTextureView {
         if (this.closed) {
             return;
         }
-        MemorySegment handle = this.nativeHandle();
         this.closed = true;
         MetalGpuTexture texture = (MetalGpuTexture) this.texture();
-        texture.queueNativeRelease(handle);
+        if (this.nativeHandle != null) {
+            texture.queueNativeRelease(this.nativeHandle);
+            this.nativeHandle = null;
+        }
         texture.removeView();
     }
 

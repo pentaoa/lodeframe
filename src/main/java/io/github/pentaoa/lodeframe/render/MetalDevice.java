@@ -271,6 +271,10 @@ final class MetalDevice implements GpuDeviceBackend {
         this.commandEncoder.queueForDestroy(() -> ObjC.release(handle));
     }
 
+    void discardPendingClears(final MetalGpuTexture texture) {
+        this.commandEncoder.discardPendingClears(texture);
+    }
+
     MetalCompiledRenderPipeline getOrCompilePipeline(final RenderPipeline pipeline) {
         ShaderSource shaderSource = this.pipelineShaderSources.getOrDefault(pipeline, this.defaultShaderSource);
         return this.compiledPipelines.computeIfAbsent(pipeline, p -> MetalCrossShaderCompiler.compile(this, p, shaderSource));

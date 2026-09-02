@@ -43,6 +43,7 @@ record ShaderPackFrameContext(
         float rainStrength,
         float thunderStrength,
         float timeAngle,
+        float sunAngle,
         float timeBrightness,
         float[] fogColor,
         float[] skyColor,
@@ -66,8 +67,8 @@ record ShaderPackFrameContext(
     ) {
         long clockTime = level.getOverworldClockTime();
         int worldTime = (int) Math.floorMod(clockTime, 24000L);
-        float timeAngle = levelState.skyRenderState.sunAngle / ((float) Math.PI * 2.0F) + 0.25F;
-        timeAngle -= (float) Math.floor(timeAngle);
+        float timeAngle = linearTimeAngle(worldTime);
+        float sunAngle = normalizedSunAngle(levelState.skyRenderState.sunAngle);
         float timeBrightness = Math.max(0.0F, (float) Math.sin(timeAngle * Math.PI * 2.0));
         int eyeMedium = switch (camera.fogType) {
             case WATER -> 1;
@@ -97,6 +98,7 @@ record ShaderPackFrameContext(
                 level.getRainLevel(partialTick),
                 level.getThunderLevel(partialTick),
                 timeAngle,
+                sunAngle,
                 timeBrightness,
                 levelState,
                 atlasWidth,
@@ -126,6 +128,7 @@ record ShaderPackFrameContext(
                 0.0F,
                 0.0F,
                 0.0F,
+                0.25F,
                 0.0F,
                 null,
                 1,
@@ -154,6 +157,7 @@ record ShaderPackFrameContext(
             final float rainStrength,
             final float thunderStrength,
             final float timeAngle,
+            final float sunAngle,
             final float timeBrightness,
             final LevelRenderState levelState,
             final int atlasWidth,
@@ -195,6 +199,7 @@ record ShaderPackFrameContext(
                 rainStrength,
                 thunderStrength,
                 timeAngle,
+                sunAngle,
                 timeBrightness,
                 new float[]{fog.x, fog.y, fog.z},
                 new float[]{sky.x, sky.y, sky.z},
@@ -205,5 +210,14 @@ record ShaderPackFrameContext(
                 screenBrightness,
                 shaderDimension
         );
+    }
+
+    static float linearTimeAngle(final int worldTime) {
+        return worldTime / 24000.0F;
+    }
+
+    static float normalizedSunAngle(final float radians) {
+        float result = radians / ((float) Math.PI * 2.0F) + 0.25F;
+        return result - (float) Math.floor(result);
     }
 }

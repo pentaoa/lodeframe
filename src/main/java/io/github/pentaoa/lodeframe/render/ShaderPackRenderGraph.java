@@ -47,17 +47,17 @@ final class ShaderPackRenderGraph implements AutoCloseable {
     private final List<ProgramPass> passes = new ArrayList<>();
     private final Map<Integer, TargetPair> targets = new HashMap<>();
     private final GpuSampler sampler;
+    private final GpuSampler depthSampler;
+    private final DepthSnapshot finalDepth = new DepthSnapshot("shader pack depthtex0");
+    private final DepthSnapshot preTranslucentDepth = new DepthSnapshot("shader pack depthtex1");
+    private final DepthSnapshot preHandDepth = new DepthSnapshot("shader pack depthtex2");
     private int width;
     private int height;
     private @Nullable GpuFormat inputFormat;
     private @Nullable GpuTexture outputTexture;
     private @Nullable GpuTextureView outputView;
-    private @Nullable GpuTextureView frameDepthView;
-    private @Nullable GpuTexture worldDepthTexture;
-    private @Nullable GpuTextureView worldDepthView;
-    private int worldDepthWidth;
-    private int worldDepthHeight;
     private boolean framePrepared;
+    private boolean preTranslucentDepthCaptured;
 
     ShaderPackRenderGraph(
             final MetalDevice device,
@@ -77,6 +77,14 @@ final class ShaderPackRenderGraph implements AutoCloseable {
                 1,
                 OptionalDouble.empty()
         );
+        this.depthSampler = device.createSampler(
+                AddressMode.CLAMP_TO_EDGE,
+                AddressMode.CLAMP_TO_EDGE,
+                FilterMode.NEAREST,
+                FilterMode.NEAREST,
+                1,
+                OptionalDouble.empty()
+        );
     }
 
     GpuTextureView process(final GpuTextureView input, final ShaderPackFrameValues values) {
@@ -84,7 +92,6 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         if (!this.framePrepared) {
             beginFrame(input);
         }
-        this.frameDepthView = capturedWorldDepth();
         copyInput(input, this.targets.get(0).read());
         boolean finalExecuted = false;
         for (ProgramPass pass : this.passes) {
@@ -96,7 +103,6 @@ final class ShaderPackRenderGraph implements AutoCloseable {
                 executeFullscreen(pass);
             }
         }
-        this.frameDepthView = null;
         this.framePrepared = false;
         return finalExecuted ? this.outputView : this.targets.get(0).read();
     }
@@ -115,6 +121,10 @@ final class ShaderPackRenderGraph implements AutoCloseable {
                 this.commandEncoder.clearColorTexture(pair.second().texture(), color);
             }
         }
+        this.finalDepth.invalidate();
+        this.preTranslucentDepth.invalidate();
+        this.preHandDepth.invalidate();
+        this.preTranslucentDepthCaptured = false;
         this.framePrepared = true;
     }
 
@@ -132,31 +142,27 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         return target == null ? null : target.read();
     }
 
-    void captureWorldDepth(final GpuTextureView depth) {
-        int capturedWidth = depth.getWidth(0);
-        int capturedHeight = depth.getHeight(0);
-        if (this.worldDepthView == null
-                || this.worldDepthWidth != capturedWidth
-                || this.worldDepthHeight != capturedHeight) {
-            releaseWorldDepth();
-            this.worldDepthWidth = capturedWidth;
-            this.worldDepthHeight = capturedHeight;
-            this.worldDepthTexture = createTexture(
-                    "shader pack world depth",
-                    GpuFormat.R32_FLOAT,
-                    capturedWidth,
-                    capturedHeight
-            );
-            this.worldDepthView = this.device.createTextureView(this.worldDepthTexture);
+    void capturePreTranslucentDepth(final GpuTextureView depth) {
+        if (!this.preTranslucentDepthCaptured) {
+            this.preTranslucentDepth.capture(depth);
+            this.preTranslucentDepthCaptured = true;
         }
-        this.commandEncoder.copyReversedDepthToLegacyColor(depth, this.worldDepthView);
     }
 
-    private @Nullable GpuTextureView capturedWorldDepth() {
-        if (this.worldDepthWidth == this.width && this.worldDepthHeight == this.height) {
-            return this.worldDepthView;
-        }
-        return null;
+    void capturePreHandDepth(final GpuTextureView depth) {
+        this.preHandDepth.capture(depth);
+    }
+
+    void captureFinalDepth(final GpuTextureView depth) {
+        this.finalDepth.capture(depth);
+    }
+
+    void bindGeometrySamplers(
+            final MetalRenderPass pass,
+            final ShaderPackProgramLoader.PreparedProgram program
+    ) {
+        program.vertex().samplers().forEach(field -> bindGraphSampler(pass, field));
+        program.fragment().samplers().forEach(field -> bindGraphSampler(pass, field));
     }
 
     private void ensureResources(final GpuTextureView input) {
@@ -299,7 +305,9 @@ final class ShaderPackRenderGraph implements AutoCloseable {
     ) {
         for (LegacyFullscreenTransformer.SamplerField samplerField : samplers) {
             GpuTextureView texture = textureForSampler(samplerField.name());
-            GpuSampler selectedSampler = samplerField.type().contains("Shadow")
+            GpuSampler selectedSampler = samplerField.name().startsWith("depthtex")
+                    ? this.depthSampler
+                    : samplerField.type().contains("Shadow")
                     || this.packTextures.forSampler(samplerField.name()) != null
                     ? this.packTextures.samplerFor(samplerField)
                     : this.sampler;
@@ -324,10 +332,42 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         if (name.startsWith("shadowtex") || name.equals("watershadow")) {
             return this.packTextures.neutralShadowDepthView();
         }
-        if (name.startsWith("depthtex")) {
-            return this.frameDepthView == null ? this.packTextures.neutralDepthView() : this.frameDepthView;
+        if (name.equals("depthtex0")) {
+            return firstDepth(this.finalDepth, this.preHandDepth, this.preTranslucentDepth);
+        }
+        if (name.equals("depthtex1")) {
+            return firstDepth(this.preTranslucentDepth, this.preHandDepth, this.finalDepth);
+        }
+        if (name.equals("depthtex2")) {
+            return firstDepth(this.preHandDepth, this.finalDepth, this.preTranslucentDepth);
         }
         return this.packTextures.neutralColorView();
+    }
+
+    private void bindGraphSampler(
+            final MetalRenderPass pass,
+            final LegacyFullscreenTransformer.SamplerField field
+    ) {
+        String name = field.name();
+        if (!isGraphSampler(name)) {
+            return;
+        }
+        pass.bindTexture(name, textureForSampler(name), name.startsWith("depthtex") ? this.depthSampler : this.sampler);
+    }
+
+    private static boolean isGraphSampler(final String name) {
+        return name.startsWith("depthtex") || LEGACY_COLORTEX.containsKey(name) || COLORTEX.matcher(name).matches();
+    }
+
+    private GpuTextureView firstDepth(final DepthSnapshot first, final DepthSnapshot second, final DepthSnapshot third) {
+        GpuTextureView result = first.view(this.width, this.height);
+        if (result == null) {
+            result = second.view(this.width, this.height);
+        }
+        if (result == null) {
+            result = third.view(this.width, this.height);
+        }
+        return result == null ? this.packTextures.neutralDepthView() : result;
     }
 
     private TargetPair createPair(final int index, final GpuFormat format) {
@@ -351,7 +391,10 @@ final class ShaderPackRenderGraph implements AutoCloseable {
     @Override
     public void close() {
         releaseColorResources();
-        releaseWorldDepth();
+        this.finalDepth.close();
+        this.preTranslucentDepth.close();
+        this.preHandDepth.close();
+        this.depthSampler.close();
         this.sampler.close();
     }
 
@@ -364,16 +407,6 @@ final class ShaderPackRenderGraph implements AutoCloseable {
         close(this.outputTexture);
         this.outputView = null;
         this.outputTexture = null;
-        this.frameDepthView = null;
-    }
-
-    private void releaseWorldDepth() {
-        close(this.worldDepthView);
-        close(this.worldDepthTexture);
-        this.worldDepthView = null;
-        this.worldDepthTexture = null;
-        this.worldDepthWidth = 0;
-        this.worldDepthHeight = 0;
     }
 
     private static void close(@Nullable final AutoCloseable resource) {
@@ -457,6 +490,52 @@ final class ShaderPackRenderGraph implements AutoCloseable {
             }
         }
 
+    }
+
+    private final class DepthSnapshot implements AutoCloseable {
+        private final String label;
+        private @Nullable GpuTexture texture;
+        private @Nullable GpuTextureView view;
+        private int width;
+        private int height;
+        private boolean valid;
+
+        private DepthSnapshot(final String label) {
+            this.label = label;
+        }
+
+        void capture(final GpuTextureView source) {
+            int capturedWidth = source.getWidth(0);
+            int capturedHeight = source.getHeight(0);
+            if (this.view == null || this.width != capturedWidth || this.height != capturedHeight) {
+                close();
+                this.width = capturedWidth;
+                this.height = capturedHeight;
+                this.texture = createTexture(this.label, GpuFormat.R32_FLOAT, capturedWidth, capturedHeight);
+                this.view = device.createTextureView(this.texture);
+            }
+            commandEncoder.copyReversedDepthToLegacyColor(source, this.view);
+            this.valid = true;
+        }
+
+        @Nullable GpuTextureView view(final int expectedWidth, final int expectedHeight) {
+            return this.valid && this.width == expectedWidth && this.height == expectedHeight ? this.view : null;
+        }
+
+        void invalidate() {
+            this.valid = false;
+        }
+
+        @Override
+        public void close() {
+            ShaderPackRenderGraph.close(this.view);
+            ShaderPackRenderGraph.close(this.texture);
+            this.view = null;
+            this.texture = null;
+            this.width = 0;
+            this.height = 0;
+            this.valid = false;
+        }
     }
 
     private static final class TargetPair implements AutoCloseable {

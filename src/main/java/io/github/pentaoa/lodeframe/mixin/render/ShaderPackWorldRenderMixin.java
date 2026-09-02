@@ -52,7 +52,7 @@ abstract class ShaderPackWorldRenderMixin {
             final DeltaTracker deltaTracker,
             final CallbackInfo ci
     ) {
-        ShaderPackRenderHooks.captureWorldDepth(((GameRenderer) (Object) this).mainRenderTarget());
+        ShaderPackRenderHooks.capturePreHandDepth(((GameRenderer) (Object) this).mainRenderTarget());
     }
 
     @Inject(

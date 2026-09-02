@@ -79,9 +79,10 @@ record ShaderPackFrameValues(
             };
             case "rainStrength", "wetness" -> component == 0 ? this.context.rainStrength() : 0.0F;
             case "thunderStrength" -> component == 0 ? this.context.thunderStrength() : 0.0F;
-            case "timeAngle", "sunAngle" -> component == 0 ? this.context.timeAngle() : 0.0F;
+            case "timeAngle" -> component == 0 ? this.context.timeAngle() : 0.0F;
+            case "sunAngle" -> component == 0 ? this.context.sunAngle() : 0.0F;
             case "timeBrightness" -> component == 0 ? this.context.timeBrightness() : 0.0F;
-            case "shadowFade" -> component == 0 ? 1.0F : 0.0F;
+            case "shadowFade" -> component == 0 ? shadowFade(this.context.worldTime()) : 0.0F;
             case "screenBrightness" -> component == 0 ? this.context.screenBrightness() : 0.0F;
             case "cloudHeight" -> component == 0 ? this.context.cloudHeight() : 0.0F;
             case "endFlashIntensity" -> component == 0 ? this.context.endFlashIntensity() : 0.0F;
@@ -127,5 +128,17 @@ record ShaderPackFrameValues(
             default -> null;
         };
         return matrix == null ? (column == row ? 1.0F : 0.0F) : matrix[column * columns + row];
+    }
+
+    static float shadowFade(final int worldTime) {
+        float fadeOut1 = clamp((worldTime - 12330) / 230.0F);
+        float fadeIn1 = clamp((worldTime - 13010) / 220.0F);
+        float fadeOut2 = clamp((worldTime - 22770) / 220.0F);
+        float fadeIn2 = clamp((worldTime - 23440) / 230.0F);
+        return 1.0F - (fadeOut1 - fadeIn1 + fadeOut2 - fadeIn2);
+    }
+
+    private static float clamp(final float value) {
+        return Math.max(0.0F, Math.min(1.0F, value));
     }
 }
