@@ -32,6 +32,26 @@ final class ShaderPackFrameTracker {
             final float sunPathRotation,
             final int shadowMapResolution
     ) {
+        return begin(
+                width,
+                height,
+                context,
+                shadowDistance,
+                sunPathRotation,
+                shadowMapResolution,
+                ShaderPackCustomUniforms.empty()
+        );
+    }
+
+    ShaderPackFrameValues begin(
+            final int width,
+            final int height,
+            final ShaderPackFrameContext context,
+            final float shadowDistance,
+            final float sunPathRotation,
+            final int shadowMapResolution,
+            final ShaderPackCustomUniforms customUniforms
+    ) {
         long now = this.nanoTime.getAsLong();
         this.frameTime = this.lastStartNanos == Long.MIN_VALUE
                 ? 0.0F
@@ -52,6 +72,7 @@ final class ShaderPackFrameTracker {
                 this.frameTime,
                 this.frameTimeCounter,
                 context,
+                customUniforms.beginFrame(this.frameTime, context, this.frameCounter),
                 priorProjection,
                 priorModelView,
                 this.previousProjection == null ? context.cameraX() : this.previousCameraX,

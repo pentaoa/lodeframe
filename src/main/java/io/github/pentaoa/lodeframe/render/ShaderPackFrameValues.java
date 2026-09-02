@@ -7,6 +7,7 @@ record ShaderPackFrameValues(
         float frameTime,
         float frameTimeCounter,
         ShaderPackFrameContext context,
+        ShaderPackCustomUniforms.Frame customUniforms,
         float[] previousProjection,
         float[] previousModelView,
         float previousCameraX,
@@ -16,6 +17,11 @@ record ShaderPackFrameValues(
 ) implements ShaderPackUniformLayout.FrameValues {
     @Override
     public int integer(final String name) {
+        Double custom = this.customUniforms.value(name, this::builtinScalar);
+        return custom == null ? rawInteger(name) : custom.intValue();
+    }
+
+    private int rawInteger(final String name) {
         return switch (name) {
             case "frameCounter" -> this.frame;
             case "worldTime" -> this.context.worldTime();
@@ -49,6 +55,16 @@ record ShaderPackFrameValues(
 
     @Override
     public float floatComponent(final String name, final int component) {
+        if (component == 0) {
+            Double custom = this.customUniforms.value(name, this::builtinScalar);
+            if (custom != null) {
+                return custom.floatValue();
+            }
+        }
+        return rawFloatComponent(name, component);
+    }
+
+    private float rawFloatComponent(final String name, final int component) {
         return switch (name) {
             case "viewWidth" -> component == 0 ? this.width : 0.0F;
             case "viewHeight" -> component == 0 ? this.height : 0.0F;
@@ -106,6 +122,14 @@ record ShaderPackFrameValues(
                 default -> 0.0F;
             };
             default -> 0.0F;
+        };
+    }
+
+    private double builtinScalar(final String name) {
+        return switch (name) {
+            case "frameCounter", "worldTime", "moonPhase", "isEyeInWater", "bedrockLevel", "heightLimit",
+                    "heldItemId", "heldItemId2", "heldBlockLightValue", "heldBlockLightValue2", "isRightHanded" -> rawInteger(name);
+            default -> rawFloatComponent(name, 0);
         };
     }
 

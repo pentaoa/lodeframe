@@ -37,6 +37,7 @@ record ShaderPackProgramSet(
         float shadowDistance,
         float sunPathRotation,
         byte[] noiseTexture,
+        ShaderPackCustomUniforms customUniforms,
         Map<Integer, GpuFormat> bufferFormats,
         Map<Integer, Boolean> bufferClears,
         Map<Integer, io.github.pentaoa.lodeframe.shaders.pack.ShaderDirectives.ClearColor> bufferClearColors
@@ -54,6 +55,7 @@ record ShaderPackProgramSet(
             "(?m)\\bconst[ \\t]+float[ \\t]+sunPathRotation[ \\t]*=[ \\t]*\\(?[ \\t]*"
                     + "(-?[ \\t]*[0-9]+(?:\\.[0-9]+)?)[fF]?[ \\t]*\\)?[ \\t]*;"
     );
+    private static final int MC_VERSION = 260200;
 
     ShaderPackProgramSet {
         fullscreenPrograms = List.copyOf(fullscreenPrograms);
@@ -95,6 +97,7 @@ record ShaderPackProgramSet(
         float shadowDistance = 128.0F;
         float sunPathRotation = 0.0F;
         byte[] noiseTexture = new byte[0];
+        ShaderPackCustomUniforms customUniforms = ShaderPackCustomUniforms.empty();
         try (ShaderPack pack = ShaderPack.open(source)) {
             for (ShaderProgram program : selected) {
                 for (Map.Entry<Integer, String> format : program.directives().bufferFormats().entrySet()) {
@@ -172,7 +175,9 @@ record ShaderPackProgramSet(
                 shadowDistance = matchFloat(SHADOW_DISTANCE, shadowVertex, shadowDistance);
                 sunPathRotation = matchFloat(SUN_PATH_ROTATION, shadowVertex, sunPathRotation);
             }
-            Matcher noise = NOISE_TEXTURE.matcher(pack.readOptional("shaders.properties"));
+            String properties = pack.readOptional("shaders.properties");
+            customUniforms = ShaderPackCustomUniforms.parse(properties, MC_VERSION);
+            Matcher noise = NOISE_TEXTURE.matcher(properties);
             if (noise.find()) {
                 noiseTexture = pack.readOptionalBytes(noise.group(1));
             }
@@ -194,6 +199,7 @@ record ShaderPackProgramSet(
                 shadowDistance,
                 sunPathRotation,
                 noiseTexture,
+                customUniforms,
                 formats,
                 clears,
                 clearColors

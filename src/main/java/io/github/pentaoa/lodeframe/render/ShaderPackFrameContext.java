@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.util.ARGB;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LightLayer;
@@ -49,6 +50,8 @@ record ShaderPackFrameContext(
         float[] skyColor,
         float cloudHeight,
         float endFlashIntensity,
+        float blindness,
+        String biome,
         int atlasWidth,
         int atlasHeight,
         float screenBrightness,
@@ -100,6 +103,10 @@ record ShaderPackFrameContext(
                 timeAngle,
                 sunAngle,
                 timeBrightness,
+                player == null ? 0.0F : player.getEffectBlendFactor(MobEffects.BLINDNESS, partialTick),
+                level.getBiome(eyeBlockPosition).unwrapKey()
+                        .map(key -> key.identifier().getPath())
+                        .orElse(""),
                 levelState,
                 atlasWidth,
                 atlasHeight,
@@ -130,6 +137,8 @@ record ShaderPackFrameContext(
                 0.0F,
                 0.25F,
                 0.0F,
+                0.0F,
+                "plains",
                 null,
                 1,
                 1,
@@ -159,6 +168,8 @@ record ShaderPackFrameContext(
             final float timeAngle,
             final float sunAngle,
             final float timeBrightness,
+            final float blindness,
+            final String biome,
             final LevelRenderState levelState,
             final int atlasWidth,
             final int atlasHeight,
@@ -205,6 +216,8 @@ record ShaderPackFrameContext(
                 new float[]{sky.x, sky.y, sky.z},
                 levelState == null ? 192.0F : levelState.cloudHeight,
                 levelState == null ? 0.0F : levelState.skyRenderState.endFlashIntensity,
+                blindness,
+                biome,
                 Math.max(1, atlasWidth),
                 Math.max(1, atlasHeight),
                 screenBrightness,

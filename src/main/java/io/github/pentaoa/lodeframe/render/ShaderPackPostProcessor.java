@@ -119,7 +119,8 @@ final class ShaderPackPostProcessor implements AutoCloseable {
                 frameContext,
                 this.programSet.shadowDistance(),
                 this.programSet.sunPathRotation(),
-                this.programSet.shadowMapResolution()
+                this.programSet.shadowMapResolution(),
+                this.programSet.customUniforms()
         );
         updateGeometryUniforms(this.frameValues);
     }
@@ -596,7 +597,8 @@ final class ShaderPackPostProcessor implements AutoCloseable {
                         frameContext,
                         this.programSet.shadowDistance(),
                         this.programSet.sunPathRotation(),
-                        this.programSet.shadowMapResolution()
+                        this.programSet.shadowMapResolution(),
+                        this.programSet.customUniforms()
                 );
                 updateGeometryUniforms(values);
             }

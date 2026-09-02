@@ -33,9 +33,6 @@ final class ShaderPackUniformLayout {
 
     void write(final ByteBuffer target, final FrameValues values) {
         target.clear();
-        for (int index = 0; index < this.size; index++) {
-            target.put(index, (byte) 0);
-        }
         for (Entry entry : this.entries) {
             writeEntry(target, entry, values);
         }
