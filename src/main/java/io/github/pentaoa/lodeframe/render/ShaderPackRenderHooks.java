@@ -14,7 +14,7 @@ import net.caffeinemc.mods.sodium.client.render.chunk.terrain.TerrainRenderPass;
 import net.caffeinemc.mods.sodium.client.render.chunk.terrain.DefaultTerrainRenderPasses;
 import net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer;
 import net.minecraft.client.renderer.chunk.ChunkSectionLayerGroup;
-import net.minecraft.client.renderer.texture.TextureAtlas;
+import net.minecraft.data.AtlasIds;
 import com.mojang.blaze3d.textures.GpuSampler;
 import org.jspecify.annotations.Nullable;
 
@@ -125,7 +125,7 @@ public final class ShaderPackRenderHooks {
     ) {
         Minecraft minecraft = Minecraft.getInstance();
         com.mojang.blaze3d.textures.GpuTexture blockAtlas = minecraft.getAtlasManager()
-                .getAtlasOrThrow(TextureAtlas.LOCATION_BLOCKS)
+                .getAtlasOrThrow(AtlasIds.BLOCKS)
                 .getTexture();
         return ShaderPackFrameContext.from(
                 gameRenderer.gameRenderState().levelRenderState.cameraRenderState,
